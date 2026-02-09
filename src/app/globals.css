@@ -1,0 +1,108 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Global design tokens.
+  These make it easy to tweak the dashboard look without hunting through components.
+*/
+:root {
+  --bg-start: #f5f7fb;
+  --bg-mid: #edf2f8;
+  --bg-end: #e3ecf6;
+  --text-primary: #0b1020;
+  --text-muted: #526070;
+  --accent: #0ea5e9;
+  --accent-2: #14b8a6;
+  --accent-3: #f97316;
+  --accent-rgb: 14, 165, 233;
+  --accent-glow: rgba(14, 165, 233, 0.2);
+  --accent-2-glow: rgba(20, 184, 166, 0.18);
+  --accent-shadow: rgba(2, 6, 23, 0.12);
+  --chart-1: #0ea5e9;
+  --chart-2: #14b8a6;
+  --chart-3: #f97316;
+  --chart-4: #fbbf24;
+  --chart-grid: #d7e2ee;
+  --card: #ffffff;
+  --border: rgba(15, 23, 42, 0.08);
+}
+
+:root[data-theme="brand"] {
+  --accent: #f97316;
+  --accent-2: #f59e0b;
+  --accent-3: #22c55e;
+  --accent-rgb: 249, 115, 22;
+  --accent-glow: rgba(249, 115, 22, 0.22);
+  --accent-2-glow: rgba(245, 158, 11, 0.18);
+  --accent-shadow: rgba(15, 23, 42, 0.14);
+  --chart-1: #f97316;
+  --chart-2: #f59e0b;
+  --chart-3: #22c55e;
+  --chart-4: #0ea5e9;
+  --chart-grid: #f1d9c7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  color: var(--text-primary);
+  background-color: var(--bg-mid);
+  /* Layered gradients + grid keep the backdrop clean while feeling more techy. */
+  background-image:
+    radial-gradient(circle at 8% 12%, var(--accent-glow), transparent 40%),
+    radial-gradient(circle at 92% 18%, var(--accent-2-glow), transparent 45%),
+    radial-gradient(circle at 50% 100%, var(--accent-shadow), transparent 55%),
+    linear-gradient(to right, rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 23, 42, 0.035) 1px, transparent 1px);
+  background-size: auto, auto, auto, 54px 54px, 54px 54px;
+  background-attachment: fixed;
+  font-family: var(--font-text), "Manrope", sans-serif;
+  line-height: 1.6;
+}
+
+/* Utility classes used across the dashboard. */
+.card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.92));
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.1);
+}
+
+.section-title {
+  font-family: var(--font-display), "Space Grotesk", sans-serif;
+  letter-spacing: -0.015em;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(18px);
+}
+
+@keyframes float {
+  0% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+  100% {
+    transform: translateY(0px);
+  }
+}
+
+.floating {
+  animation: float 6s ease-in-out infinite;
+}
