@@ -2,6 +2,16 @@
 
 This dashboard reads CSV files from `Data/raw/`. If a file is missing, it falls back to sample data and the UI will warn you.
 
+## API mode (optional)
+
+X API can be enabled without disabling CSV.
+
+- Set `X_DATA_MODE=auto` (or `api`) in `.env.local`.
+- Set `X_API_BEARER_TOKEN` and `X_API_USERNAME`.
+- Keep CSV files in place as fallback/backfill.
+
+LinkedIn API is not connected in v1 yet, so LinkedIn uses CSV.
+
 ## Folder structure
 
 ```
