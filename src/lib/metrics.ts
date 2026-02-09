@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { parse as parseCsv } from "csv-parse/sync";
 import { formatMonthLabel } from "@/lib/format";
+import { loadLinkedInApiSnapshot } from "@/lib/providers/linkedin-api";
 import { loadXApiSnapshot } from "@/lib/providers/x-api";
 
 // ----------------------------
@@ -214,21 +215,46 @@ const LINKEDIN_DATA_MODE = (process.env.LINKEDIN_DATA_MODE ?? "auto").toLowerCas
 // ----------------------------
 
 export async function getDashboardData(): Promise<DashboardData> {
-  const linkedInPostsData = await loadLinkedInPostsData();
-  const [xPostsData, xApiSnapshot, xDailyResult, linkedInDailyResult] = await Promise.all([
+  const [xPostsData, linkedInPostsData, xApiSnapshot, linkedInApiSnapshot] = await Promise.all([
     loadXPostsData(),
+    loadLinkedInPostsData(),
     loadXApiSnapshot(),
+    loadLinkedInApiSnapshot()
+  ]);
+  const [xDailyResult, linkedInDailyResult] = await Promise.all([
     loadXDailyMetrics(),
     loadLinkedInDailyMetrics(linkedInPostsData.postsByDate)
   ]);
 
   const useXApi = shouldUseXApi(xApiSnapshot.daily.length);
-  const useLinkedInApi = LINKEDIN_DATA_MODE === "api";
+  const useLinkedInApi = shouldUseLinkedInApi(linkedInApiSnapshot.daily.length);
   const xMetrics = useXApi ? xApiSnapshot.daily : xDailyResult.metrics;
   const xTopPosts = useXApi && xApiSnapshot.topPosts.length > 0
     ? xApiSnapshot.topPosts
     : xPostsData.topPosts;
-  const linkedinMetrics = linkedInDailyResult.metrics;
+  const linkedinMetrics = useLinkedInApi
+    ? linkedInApiSnapshot.daily
+    : linkedInDailyResult.metrics;
+  const linkedinTopPosts =
+    useLinkedInApi && linkedInApiSnapshot.topPosts.length > 0
+      ? linkedInApiSnapshot.topPosts
+      : linkedInPostsData.topPosts;
+  const linkedinTopPostsByRate =
+    useLinkedInApi && linkedInApiSnapshot.topPostsByRate.length > 0
+      ? linkedInApiSnapshot.topPostsByRate
+      : linkedInPostsData.topPostsByRate;
+  const linkedinContentTypes =
+    useLinkedInApi && linkedInApiSnapshot.contentTypes.length > 0
+      ? linkedInApiSnapshot.contentTypes
+      : linkedInPostsData.contentTypes;
+  const linkedInBestTimes =
+    useLinkedInApi && linkedInApiSnapshot.bestTimes.length > 0
+      ? linkedInApiSnapshot.bestTimes
+      : linkedInPostsData.bestTimes;
+  const linkedInTimeOfDayAvailable =
+    useLinkedInApi && linkedInApiSnapshot.timeOfDayAvailable
+      ? true
+      : linkedInPostsData.timeOfDayAvailable;
 
   const xData = buildPlatformData(xMetrics);
   const linkedinData = buildPlatformData(linkedinMetrics);
@@ -255,15 +281,16 @@ export async function getDashboardData(): Promise<DashboardData> {
     linkedInDailyResult.validation,
     linkedInPostsData.validation
   ];
-  const usingSampleData = useXApi
-    ? csvValidation.some(
-        (item) => item.source === "sample" && !item.id.startsWith("x-")
-      )
-    : csvValidation.some((item) => item.source === "sample");
+  const usingSampleData = csvValidation.some((item) => {
+    if (item.source !== "sample") return false;
+    if (useXApi && item.id.startsWith("x-")) return false;
+    if (useLinkedInApi && item.id.startsWith("linkedin-")) return false;
+    return true;
+  });
 
   const sourceStates: SourceState[] = [
     buildXSourceState(useXApi, xApiSnapshot),
-    buildLinkedInSourceState(useLinkedInApi)
+    buildLinkedInSourceState(useLinkedInApi, linkedInApiSnapshot)
   ];
 
   return {
@@ -275,12 +302,12 @@ export async function getDashboardData(): Promise<DashboardData> {
     lastMonthLabel,
     previousMonthLabel,
     xTopPosts,
-    linkedinTopPosts: linkedInPostsData.topPosts,
-    linkedinTopPostsByRate: linkedInPostsData.topPostsByRate,
-    linkedinContentTypes: linkedInPostsData.contentTypes,
+    linkedinTopPosts,
+    linkedinTopPostsByRate,
+    linkedinContentTypes,
     dayOfWeek,
-    bestTimes: linkedInPostsData.bestTimes,
-    timeOfDayAvailable: linkedInPostsData.timeOfDayAvailable,
+    bestTimes: linkedInBestTimes,
+    timeOfDayAvailable: linkedInTimeOfDayAvailable,
     dataQuality,
     csvValidation,
     usingSampleData,
@@ -299,6 +326,16 @@ function shouldUseXApi(apiDailyCount: number): boolean {
     return apiDailyCount > 0;
   }
   if (X_DATA_MODE === "csv") {
+    return false;
+  }
+  return apiDailyCount > 0;
+}
+
+function shouldUseLinkedInApi(apiDailyCount: number): boolean {
+  if (LINKEDIN_DATA_MODE === "api") {
+    return apiDailyCount > 0;
+  }
+  if (LINKEDIN_DATA_MODE === "csv") {
     return false;
   }
   return apiDailyCount > 0;
@@ -336,12 +373,29 @@ function buildXSourceState(
   };
 }
 
-function buildLinkedInSourceState(useLinkedInApi: boolean): SourceState {
+function buildLinkedInSourceState(
+  useLinkedInApi: boolean,
+  apiSnapshot: Awaited<ReturnType<typeof loadLinkedInApiSnapshot>>
+): SourceState {
   if (useLinkedInApi) {
     return {
       platform: "linkedin",
+      mode: "api",
+      detail: "LinkedIn API"
+    };
+  }
+  if (apiSnapshot.source === "error" && apiSnapshot.error) {
+    return {
+      platform: "linkedin",
       mode: "csv",
-      detail: "CSV fallback (LinkedIn API connector pending setup)"
+      detail: `CSV fallback (${apiSnapshot.error})`
+    };
+  }
+  if (apiSnapshot.source === "disabled" && LINKEDIN_DATA_MODE !== "csv") {
+    return {
+      platform: "linkedin",
+      mode: "csv",
+      detail: "CSV (set LINKEDIN_API_ACCESS_TOKEN + LINKEDIN_ORGANIZATION_URN for API)"
     };
   }
   return {

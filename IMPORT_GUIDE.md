@@ -10,7 +10,13 @@ X API can be enabled without disabling CSV.
 - Set `X_API_BEARER_TOKEN` and `X_API_USERNAME`.
 - Keep CSV files in place as fallback/backfill.
 
-LinkedIn API is not connected in v1 yet, so LinkedIn uses CSV.
+LinkedIn API adapter is available in v1. Set:
+
+- `LINKEDIN_DATA_MODE=auto` (or `api`)
+- `LINKEDIN_API_ACCESS_TOKEN`
+- `LINKEDIN_ORGANIZATION_URN`
+
+If API setup is incomplete, the app falls back to CSV.
 
 ## Folder structure
 
