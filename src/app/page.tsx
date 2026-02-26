@@ -267,21 +267,6 @@ export default async function HomePage({
         </div>
       </section>
 
-      {data.usingSampleData && (
-        <section className="mt-6">
-          <div className="card border border-amber-200/80 bg-amber-50/70 p-4">
-            <p className="text-sm font-semibold text-amber-900">
-              You&apos;re viewing sample data.
-            </p>
-            <p className="mt-1 text-xs text-amber-800">
-              Replace the sample files by dropping your CSV exports into
-              <span className="font-semibold text-amber-900"> Data/raw</span>. The
-              dashboard auto-falls back to available API/CSV sources if one is missing.
-            </p>
-          </div>
-        </section>
-      )}
-
       {/* Setup checklist: clear next steps for API and CSV setup without reading env docs. */}
       <section className="mt-6 card p-6">
         <h2 className="section-title text-xl">Setup Checklist</h2>
