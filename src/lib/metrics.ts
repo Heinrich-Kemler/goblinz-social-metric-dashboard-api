@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, type Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { parse as parseCsv } from "csv-parse/sync";
@@ -70,9 +70,15 @@ export type DashboardData = {
   lastMonthLabel: string;
   previousMonthLabel: string;
   xTopPosts: XPostSummary[];
+  xBestTimes: BestTimeSlot[];
+  xTimeMatrix: BestTimeSlot[];
+  xTimeOfDayAvailable: boolean;
+  xPerPostStats: PerPostStats;
   linkedinTopPosts: LinkedInPostSummary[];
   linkedinTopPostsByRate: LinkedInPostSummary[];
   linkedinContentTypes: LinkedInContentTypeSummary[];
+  linkedinTimeMatrix: BestTimeSlot[];
+  linkedinPerPostStats: PerPostStats;
   dayOfWeek: DayOfWeekSummary[];
   bestTimes: BestTimeSlot[];
   timeOfDayAvailable: boolean;
@@ -80,6 +86,7 @@ export type DashboardData = {
   csvValidation: CsvValidation[];
   usingSampleData: boolean;
   sourceStates: SourceState[];
+  setupChecks: SetupCheck[];
 };
 
 export type PlatformData = {
@@ -140,6 +147,14 @@ export type BestTimeSlot = {
   engagementRate: number | null;
 };
 
+export type PerPostStats = {
+  averagePerPost: number | null;
+  medianPerPost: number | null;
+  averagePerPostLatestMonth: number | null;
+  medianPerPostLatestMonth: number | null;
+  latestMonthLabel: string;
+};
+
 type MetricKey = Exclude<keyof DailyMetric, "source" | "date">;
 
 const METRIC_KEYS: MetricKey[] = [
@@ -181,9 +196,25 @@ export type DataQualitySummary = {
 
 export type SourceState = {
   platform: Platform;
-  mode: "api" | "csv";
+  mode: "api" | "csv" | "hybrid";
+  detail: string;
+  note?: string;
+  lastApiRefreshIso?: string | null;
+};
+
+export type SetupCheck = {
+  id: string;
+  label: string;
+  status: "ok" | "warning" | "info";
   detail: string;
 };
+
+type DashboardOptions = {
+  forceRefresh?: boolean;
+};
+
+type DataMode = "auto" | "api" | "csv";
+type RefreshMode = "manual" | "auto";
 
 // ----------------------------
 // File locations (v1: local CSV files)
@@ -207,34 +238,60 @@ const LINKEDIN_POSTS_CSV_SAMPLE = "linkedin_posts_sample.csv";
 
 // LinkedIn export uses MM/DD/YYYY in most locales. Change to "DMY" if needed.
 const LINKEDIN_DATE_FORMAT: "MDY" | "DMY" = "MDY";
-const X_DATA_MODE = (process.env.X_DATA_MODE ?? "auto").toLowerCase();
-const LINKEDIN_DATA_MODE = (process.env.LINKEDIN_DATA_MODE ?? "auto").toLowerCase();
+const X_DATA_MODE = resolveDataMode(process.env.X_DATA_MODE);
+const LINKEDIN_DATA_MODE = resolveDataMode(process.env.LINKEDIN_DATA_MODE);
+const API_REFRESH_MODE = resolveRefreshMode(process.env.API_REFRESH_MODE);
 
 // ----------------------------
 // Public API: used by the page
 // ----------------------------
 
-export async function getDashboardData(): Promise<DashboardData> {
+export async function getDashboardData(
+  options: DashboardOptions = {}
+): Promise<DashboardData> {
   const [xPostsData, linkedInPostsData, xApiSnapshot, linkedInApiSnapshot] = await Promise.all([
     loadXPostsData(),
     loadLinkedInPostsData(),
-    loadXApiSnapshot(),
-    loadLinkedInApiSnapshot()
+    loadXApiSnapshotForMode({ forceRefresh: options.forceRefresh }),
+    loadLinkedInApiSnapshotForMode({ forceRefresh: options.forceRefresh })
   ]);
   const [xDailyResult, linkedInDailyResult] = await Promise.all([
     loadXDailyMetrics(),
     loadLinkedInDailyMetrics(linkedInPostsData.postsByDate)
   ]);
 
-  const useXApi = shouldUseXApi(xApiSnapshot.daily.length);
-  const useLinkedInApi = shouldUseLinkedInApi(linkedInApiSnapshot.daily.length);
-  const xMetrics = useXApi ? xApiSnapshot.daily : xDailyResult.metrics;
-  const xTopPosts = useXApi && xApiSnapshot.topPosts.length > 0
-    ? xApiSnapshot.topPosts
-    : xPostsData.topPosts;
-  const linkedinMetrics = useLinkedInApi
-    ? linkedInApiSnapshot.daily
-    : linkedInDailyResult.metrics;
+  const xSelection = selectMetricsForMode(
+    X_DATA_MODE,
+    xDailyResult.metrics,
+    xApiSnapshot.daily
+  );
+  const linkedInSelection = selectMetricsForMode(
+    LINKEDIN_DATA_MODE,
+    linkedInDailyResult.metrics,
+    linkedInApiSnapshot.daily
+  );
+  const useXApi = xSelection.usesApi;
+  const useLinkedInApi = linkedInSelection.usesApi;
+  const xMetrics = xSelection.metrics;
+  const linkedinMetrics = linkedInSelection.metrics;
+  const xTopPosts = selectXTopPosts({
+    mode: X_DATA_MODE,
+    csvTopPosts: xPostsData.topPosts,
+    apiTopPosts: xApiSnapshot.topPosts
+  });
+  const xBestTimes = selectBestTimes({
+    mode: X_DATA_MODE,
+    csvBestTimes: xPostsData.bestTimes,
+    apiBestTimes: xApiSnapshot.bestTimes
+  });
+  const xTimeMatrix = selectTimeMatrix({
+    mode: X_DATA_MODE,
+    csvTimeMatrix: xPostsData.timeMatrix,
+    apiTimeMatrix: xApiSnapshot.timeMatrix
+  });
+  const xTimeOfDayAvailable = xSelection.usesApi
+    ? xApiSnapshot.timeOfDayAvailable || xPostsData.timeOfDayAvailable
+    : xPostsData.timeOfDayAvailable;
   const linkedinTopPosts =
     useLinkedInApi && linkedInApiSnapshot.topPosts.length > 0
       ? linkedInApiSnapshot.topPosts
@@ -247,10 +304,16 @@ export async function getDashboardData(): Promise<DashboardData> {
     useLinkedInApi && linkedInApiSnapshot.contentTypes.length > 0
       ? linkedInApiSnapshot.contentTypes
       : linkedInPostsData.contentTypes;
-  const linkedInBestTimes =
-    useLinkedInApi && linkedInApiSnapshot.bestTimes.length > 0
-      ? linkedInApiSnapshot.bestTimes
-      : linkedInPostsData.bestTimes;
+  const linkedInBestTimes = selectBestTimes({
+    mode: LINKEDIN_DATA_MODE,
+    csvBestTimes: linkedInPostsData.bestTimes,
+    apiBestTimes: linkedInApiSnapshot.bestTimes
+  });
+  const linkedinTimeMatrix = selectTimeMatrix({
+    mode: LINKEDIN_DATA_MODE,
+    csvTimeMatrix: linkedInPostsData.timeMatrix,
+    apiTimeMatrix: linkedInApiSnapshot.timeMatrix
+  });
   const linkedInTimeOfDayAvailable =
     useLinkedInApi && linkedInApiSnapshot.timeOfDayAvailable
       ? true
@@ -268,6 +331,8 @@ export async function getDashboardData(): Promise<DashboardData> {
     combinedData.monthly
   );
   const dayOfWeek = buildDayOfWeekSummary(combinedData.daily);
+  const xPerPostStats = buildPerPostStats(xMetrics);
+  const linkedinPerPostStats = buildPerPostStats(linkedinMetrics);
   const dataQuality = [
     buildDataQuality("X", xMetrics),
     buildDataQuality("LinkedIn", linkedinMetrics),
@@ -283,15 +348,23 @@ export async function getDashboardData(): Promise<DashboardData> {
   ];
   const usingSampleData = csvValidation.some((item) => {
     if (item.source !== "sample") return false;
-    if (useXApi && item.id.startsWith("x-")) return false;
-    if (useLinkedInApi && item.id.startsWith("linkedin-")) return false;
+    if (!xSelection.usesCsv && item.id.startsWith("x-")) return false;
+    if (!linkedInSelection.usesCsv && item.id.startsWith("linkedin-")) return false;
     return true;
   });
 
   const sourceStates: SourceState[] = [
-    buildXSourceState(useXApi, xApiSnapshot),
-    buildLinkedInSourceState(useLinkedInApi, linkedInApiSnapshot)
+    buildXSourceState(xSelection, xApiSnapshot),
+    buildLinkedInSourceState(linkedInSelection, linkedInApiSnapshot)
   ];
+  const setupChecks = buildSetupChecks({
+    useXApi,
+    useXCsv: xSelection.usesCsv,
+    useLinkedInApi,
+    useLinkedInCsv: linkedInSelection.usesCsv,
+    xApiSnapshot,
+    linkedInApiSnapshot
+  });
 
   return {
     x: xData,
@@ -302,16 +375,23 @@ export async function getDashboardData(): Promise<DashboardData> {
     lastMonthLabel,
     previousMonthLabel,
     xTopPosts,
+    xBestTimes,
+    xTimeMatrix,
+    xTimeOfDayAvailable,
+    xPerPostStats,
     linkedinTopPosts,
     linkedinTopPostsByRate,
     linkedinContentTypes,
+    linkedinTimeMatrix,
+    linkedinPerPostStats,
     dayOfWeek,
     bestTimes: linkedInBestTimes,
     timeOfDayAvailable: linkedInTimeOfDayAvailable,
     dataQuality,
     csvValidation,
     usingSampleData,
-    sourceStates
+    sourceStates,
+    setupChecks
   };
 }
 
@@ -321,100 +401,504 @@ export async function getDashboardData(): Promise<DashboardData> {
 
 type ColumnGroup = { label: string; fields: string[] };
 
-function shouldUseXApi(apiDailyCount: number): boolean {
-  if (X_DATA_MODE === "api") {
-    return apiDailyCount > 0;
+type MetricSelection = {
+  metrics: DailyMetric[];
+  usesApi: boolean;
+  usesCsv: boolean;
+};
+
+function resolveDataMode(raw: string | undefined): DataMode {
+  const normalized = (raw ?? "auto").toLowerCase();
+  if (normalized === "api" || normalized === "csv" || normalized === "auto") {
+    return normalized;
   }
-  if (X_DATA_MODE === "csv") {
-    return false;
-  }
-  return apiDailyCount > 0;
+  return "auto";
 }
 
-function shouldUseLinkedInApi(apiDailyCount: number): boolean {
-  if (LINKEDIN_DATA_MODE === "api") {
-    return apiDailyCount > 0;
+function resolveRefreshMode(raw: string | undefined): RefreshMode {
+  return (raw ?? "manual").toLowerCase() === "auto" ? "auto" : "manual";
+}
+
+async function loadXApiSnapshotForMode(
+  options: DashboardOptions
+): Promise<Awaited<ReturnType<typeof loadXApiSnapshot>>> {
+  if (X_DATA_MODE === "csv") {
+    return {
+      daily: [],
+      topPosts: [],
+      bestTimes: [],
+      timeMatrix: [],
+      timeOfDayAvailable: false,
+      source: "disabled",
+      fetchedAt: null
+    };
   }
+  return loadXApiSnapshot({
+    ...options,
+    manualOnly: API_REFRESH_MODE === "manual"
+  });
+}
+
+async function loadLinkedInApiSnapshotForMode(
+  options: DashboardOptions
+): Promise<Awaited<ReturnType<typeof loadLinkedInApiSnapshot>>> {
   if (LINKEDIN_DATA_MODE === "csv") {
-    return false;
+    return {
+      daily: [],
+      topPosts: [],
+      topPostsByRate: [],
+      contentTypes: [],
+      bestTimes: [],
+      timeMatrix: [],
+      timeOfDayAvailable: false,
+      source: "disabled",
+      fetchedAt: null
+    };
   }
-  return apiDailyCount > 0;
+  return loadLinkedInApiSnapshot({
+    ...options,
+    manualOnly: API_REFRESH_MODE === "manual"
+  });
+}
+
+function selectMetricsForMode(
+  mode: DataMode,
+  csvMetrics: DailyMetric[],
+  apiMetrics: DailyMetric[]
+): MetricSelection {
+  if (mode === "csv") {
+    return { metrics: csvMetrics, usesApi: false, usesCsv: true };
+  }
+
+  if (mode === "api") {
+    if (apiMetrics.length > 0) {
+      return { metrics: apiMetrics, usesApi: true, usesCsv: false };
+    }
+    return { metrics: csvMetrics, usesApi: false, usesCsv: true };
+  }
+
+  if (apiMetrics.length > 0) {
+    return {
+      metrics: mergeDailyMetrics([...csvMetrics, ...apiMetrics]),
+      usesApi: true,
+      usesCsv: true
+    };
+  }
+
+  return { metrics: csvMetrics, usesApi: false, usesCsv: true };
+}
+
+function selectXTopPosts(args: {
+  mode: DataMode;
+  csvTopPosts: XPostSummary[];
+  apiTopPosts: XPostSummary[];
+}): XPostSummary[] {
+  if (args.mode === "csv") {
+    return args.csvTopPosts;
+  }
+
+  if (args.mode === "api") {
+    return args.apiTopPosts.length > 0 ? args.apiTopPosts : args.csvTopPosts;
+  }
+
+  if (args.apiTopPosts.length === 0) {
+    return args.csvTopPosts;
+  }
+
+  const byKey = new Map<string, XPostSummary>();
+  [...args.csvTopPosts, ...args.apiTopPosts].forEach((post) => {
+    const key = post.link || `${post.text}-${post.createdAt?.toISOString() ?? ""}`;
+    const existing = byKey.get(key);
+    if (!existing || post.impressions > existing.impressions) {
+      byKey.set(key, post);
+    }
+  });
+
+  return Array.from(byKey.values())
+    .sort((a, b) => b.impressions - a.impressions)
+    .slice(0, 5);
+}
+
+function selectBestTimes(args: {
+  mode: DataMode;
+  csvBestTimes: BestTimeSlot[];
+  apiBestTimes: BestTimeSlot[];
+}): BestTimeSlot[] {
+  if (args.mode === "csv") {
+    return rankTopTimeSlots(args.csvBestTimes);
+  }
+
+  if (args.mode === "api") {
+    return rankTopTimeSlots(
+      args.apiBestTimes.length > 0 ? args.apiBestTimes : args.csvBestTimes
+    );
+  }
+
+  if (args.apiBestTimes.length === 0) {
+    return rankTopTimeSlots(args.csvBestTimes);
+  }
+
+  return rankTopTimeSlots(
+    mergeTimeMatrixSlots([...args.csvBestTimes, ...args.apiBestTimes])
+  );
+}
+
+function selectTimeMatrix(args: {
+  mode: DataMode;
+  csvTimeMatrix: BestTimeSlot[];
+  apiTimeMatrix: BestTimeSlot[];
+}): BestTimeSlot[] {
+  if (args.mode === "csv") {
+    return mergeTimeMatrixSlots(args.csvTimeMatrix);
+  }
+
+  if (args.mode === "api") {
+    return mergeTimeMatrixSlots(
+      args.apiTimeMatrix.length > 0 ? args.apiTimeMatrix : args.csvTimeMatrix
+    );
+  }
+
+  if (args.apiTimeMatrix.length === 0) {
+    return mergeTimeMatrixSlots(args.csvTimeMatrix);
+  }
+
+  return mergeTimeMatrixSlots([...args.csvTimeMatrix, ...args.apiTimeMatrix]);
 }
 
 function buildXSourceState(
-  useXApi: boolean,
+  selection: MetricSelection,
   apiSnapshot: Awaited<ReturnType<typeof loadXApiSnapshot>>
 ): SourceState {
-  if (useXApi) {
+  if (selection.usesApi && selection.usesCsv) {
+    return {
+      platform: "x",
+      mode: "hybrid",
+      detail: "API + CSV",
+      lastApiRefreshIso: apiSnapshot.fetchedAt?.toISOString() ?? null
+    };
+  }
+  if (selection.usesApi) {
     return {
       platform: "x",
       mode: "api",
-      detail: "X API"
+      detail: "API connected",
+      lastApiRefreshIso: apiSnapshot.fetchedAt?.toISOString() ?? null
     };
   }
   if (apiSnapshot.source === "error" && apiSnapshot.error) {
     return {
       platform: "x",
       mode: "csv",
-      detail: `CSV fallback (${apiSnapshot.error})`
+      detail: "CSV fallback",
+      note: "X API returned an error. Check Setup Checklist for details."
+    };
+  }
+  if (apiSnapshot.source === "api" && apiSnapshot.daily.length === 0 && X_DATA_MODE === "api") {
+    return {
+      platform: "x",
+      mode: "csv",
+      detail: "CSV fallback",
+      note: "X API returned no usable daily rows. CSV remains active."
     };
   }
   if (apiSnapshot.source === "disabled" && X_DATA_MODE !== "csv") {
     return {
       platform: "x",
       mode: "csv",
-      detail: "CSV (set X_API_BEARER_TOKEN + X_API_USERNAME for API)"
+      detail: "CSV fallback",
+      note: "Set X_API_BEARER_TOKEN and X_API_USERNAME in .env.local to enable API mode."
+    };
+  }
+  if (
+    apiSnapshot.source === "paused" &&
+    !(process.env.X_API_BEARER_TOKEN && process.env.X_API_USERNAME)
+  ) {
+    return {
+      platform: "x",
+      mode: "csv",
+      detail: "CSV fallback",
+      note: "Set X_API_BEARER_TOKEN and X_API_USERNAME in .env.local to enable API mode."
+    };
+  }
+  if (apiSnapshot.source === "paused") {
+    return {
+      platform: "x",
+      mode: "csv",
+      detail: "CSV (API paused)",
+      note:
+        "API auto-pull is paused to control cost. Use Manual API Refresh when you want the latest API data.",
+      lastApiRefreshIso: apiSnapshot.fetchedAt?.toISOString() ?? null
     };
   }
   return {
     platform: "x",
     mode: "csv",
-    detail: "CSV"
+    detail: "CSV only"
   };
 }
 
 function buildLinkedInSourceState(
-  useLinkedInApi: boolean,
+  selection: MetricSelection,
   apiSnapshot: Awaited<ReturnType<typeof loadLinkedInApiSnapshot>>
 ): SourceState {
-  if (useLinkedInApi) {
+  if (selection.usesApi && selection.usesCsv) {
+    return {
+      platform: "linkedin",
+      mode: "hybrid",
+      detail: "API + CSV",
+      lastApiRefreshIso: apiSnapshot.fetchedAt?.toISOString() ?? null
+    };
+  }
+  if (selection.usesApi) {
     return {
       platform: "linkedin",
       mode: "api",
-      detail: "LinkedIn API"
+      detail: "API connected",
+      lastApiRefreshIso: apiSnapshot.fetchedAt?.toISOString() ?? null
     };
   }
   if (apiSnapshot.source === "error" && apiSnapshot.error) {
     return {
       platform: "linkedin",
       mode: "csv",
-      detail: `CSV fallback (${apiSnapshot.error})`
+      detail: "CSV fallback",
+      note: "LinkedIn API returned an error. Check Setup Checklist for details."
+    };
+  }
+  if (
+    apiSnapshot.source === "api" &&
+    apiSnapshot.daily.length === 0 &&
+    LINKEDIN_DATA_MODE === "api"
+  ) {
+    return {
+      platform: "linkedin",
+      mode: "csv",
+      detail: "CSV fallback",
+      note: "LinkedIn API returned no usable daily rows. CSV remains active."
     };
   }
   if (apiSnapshot.source === "disabled" && LINKEDIN_DATA_MODE !== "csv") {
     return {
       platform: "linkedin",
       mode: "csv",
-      detail: "CSV (set LINKEDIN_API_ACCESS_TOKEN + LINKEDIN_ORGANIZATION_URN for API)"
+      detail: "CSV fallback",
+      note: "Set LINKEDIN_API_ACCESS_TOKEN and LINKEDIN_ORGANIZATION_URN to enable API mode."
+    };
+  }
+  if (
+    apiSnapshot.source === "paused" &&
+    !(process.env.LINKEDIN_API_ACCESS_TOKEN && process.env.LINKEDIN_ORGANIZATION_URN)
+  ) {
+    return {
+      platform: "linkedin",
+      mode: "csv",
+      detail: "CSV fallback",
+      note: "Set LINKEDIN_API_ACCESS_TOKEN and LINKEDIN_ORGANIZATION_URN to enable API mode."
+    };
+  }
+  if (apiSnapshot.source === "paused") {
+    return {
+      platform: "linkedin",
+      mode: "csv",
+      detail: "CSV (API paused)",
+      note:
+        "API auto-pull is paused to control cost. Use Manual API Refresh when you want the latest API data.",
+      lastApiRefreshIso: apiSnapshot.fetchedAt?.toISOString() ?? null
     };
   }
   return {
     platform: "linkedin",
     mode: "csv",
-    detail: "CSV"
+    detail: "CSV only"
   };
+}
+
+function buildSetupChecks(args: {
+  useXApi: boolean;
+  useXCsv: boolean;
+  useLinkedInApi: boolean;
+  useLinkedInCsv: boolean;
+  xApiSnapshot: Awaited<ReturnType<typeof loadXApiSnapshot>>;
+  linkedInApiSnapshot: Awaited<ReturnType<typeof loadLinkedInApiSnapshot>>;
+}): SetupCheck[] {
+  const checks: SetupCheck[] = [];
+  const hasXCreds = Boolean(
+    process.env.X_API_BEARER_TOKEN && process.env.X_API_USERNAME
+  );
+  const hasLinkedInCreds = Boolean(
+    process.env.LINKEDIN_API_ACCESS_TOKEN && process.env.LINKEDIN_ORGANIZATION_URN
+  );
+  const hasPublicSecrets = Boolean(
+    process.env.NEXT_PUBLIC_X_API_BEARER_TOKEN ||
+      process.env.NEXT_PUBLIC_LINKEDIN_API_ACCESS_TOKEN
+  );
+
+  if (hasPublicSecrets) {
+    checks.push({
+      id: "public-secrets",
+      label: "Public secret exposure check",
+      status: "warning",
+      detail:
+        "Detected API token-like values in NEXT_PUBLIC env vars. Move all secrets to server-only env vars."
+    });
+  } else {
+    checks.push({
+      id: "server-only-secrets",
+      label: "Server-only secrets check",
+      status: "ok",
+      detail:
+        "No API token-like NEXT_PUBLIC env vars detected. Keep API keys in .env.local only."
+    });
+  }
+
+  if (X_DATA_MODE === "csv") {
+    checks.push({
+      id: "x-mode-csv",
+      label: "X source mode",
+      status: "info",
+      detail: "X_DATA_MODE=csv. API is disabled and CSV is authoritative."
+    });
+  } else if (!hasXCreds) {
+    checks.push({
+      id: "x-creds",
+      label: "X API credentials",
+      status: "warning",
+      detail:
+        "Set X_API_BEARER_TOKEN and X_API_USERNAME for API ingestion. CSV fallback is active."
+    });
+  } else if (args.xApiSnapshot.source === "paused") {
+    checks.push({
+      id: "x-manual-refresh",
+      label: "X API refresh mode",
+      status: "info",
+      detail:
+        "API auto-pull is paused to reduce spend. Use Manual API Refresh to pull the latest API snapshot."
+    });
+  } else if (args.useXApi) {
+    checks.push({
+      id: "x-connected",
+      label: "X API connectivity",
+      status: "ok",
+      detail: args.useXCsv
+        ? `Connected. Loaded ${args.xApiSnapshot.daily.length} API daily rows and merged with CSV history.`
+        : `Connected. Loaded ${args.xApiSnapshot.daily.length} daily rows from API.`
+    });
+  } else if (args.xApiSnapshot.source === "api" && X_DATA_MODE === "api") {
+    checks.push({
+      id: "x-empty",
+      label: "X API connectivity",
+      status: "warning",
+      detail: "API returned no usable daily rows. CSV fallback is active."
+    });
+  } else if (args.xApiSnapshot.source === "error") {
+    checks.push({
+      id: "x-error",
+      label: "X API connectivity",
+      status: "warning",
+      detail: `API failed, CSV fallback active. ${args.xApiSnapshot.error ?? ""}`.trim()
+    });
+  }
+
+  if (LINKEDIN_DATA_MODE === "csv") {
+    checks.push({
+      id: "linkedin-mode-csv",
+      label: "LinkedIn source mode",
+      status: "info",
+      detail: "LINKEDIN_DATA_MODE=csv. API is disabled and CSV is authoritative."
+    });
+  } else if (!hasLinkedInCreds) {
+    checks.push({
+      id: "linkedin-creds",
+      label: "LinkedIn API credentials",
+      status: "warning",
+      detail:
+        "Set LINKEDIN_API_ACCESS_TOKEN and LINKEDIN_ORGANIZATION_URN for API ingestion. CSV fallback is active."
+    });
+  } else if (args.linkedInApiSnapshot.source === "paused") {
+    checks.push({
+      id: "linkedin-manual-refresh",
+      label: "LinkedIn API refresh mode",
+      status: "info",
+      detail:
+        "API auto-pull is paused to reduce spend. Use Manual API Refresh to pull the latest API snapshot."
+    });
+  } else if (args.useLinkedInApi) {
+    checks.push({
+      id: "linkedin-connected",
+      label: "LinkedIn API connectivity",
+      status: "ok",
+      detail: args.useLinkedInCsv
+        ? `Connected. Loaded ${args.linkedInApiSnapshot.daily.length} API daily rows and merged with CSV history.`
+        : `Connected. Loaded ${args.linkedInApiSnapshot.daily.length} daily rows from API.`
+    });
+  } else if (
+    args.linkedInApiSnapshot.source === "api" &&
+    LINKEDIN_DATA_MODE === "api"
+  ) {
+    checks.push({
+      id: "linkedin-empty",
+      label: "LinkedIn API connectivity",
+      status: "warning",
+      detail: "API returned no usable daily rows. CSV fallback is active."
+    });
+  } else if (args.linkedInApiSnapshot.source === "error") {
+    checks.push({
+      id: "linkedin-error",
+      label: "LinkedIn API connectivity",
+      status: "warning",
+      detail: `API failed, CSV fallback active. ${
+        args.linkedInApiSnapshot.error ?? ""
+      }`.trim()
+    });
+  }
+
+  checks.push({
+    id: "billing",
+    label: "API usage cost notice",
+    status: "info",
+    detail:
+      "API usage can incur cost. Keep CSV fallback enabled and use manual refresh to limit API calls."
+  });
+
+  return checks;
 }
 
 async function listCsvFiles(
   dir: string,
   include: (fileName: string) => boolean
 ): Promise<string[]> {
+  const matches: string[] = [];
+
+  async function walk(currentDir: string): Promise<void> {
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(currentDir, { withFileTypes: true });
+    } catch (error) {
+      return;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+        continue;
+      }
+      if (!entry.isFile()) {
+        continue;
+      }
+      if (!entry.name.toLowerCase().endsWith(".csv")) {
+        continue;
+      }
+      if (!include(entry.name)) {
+        continue;
+      }
+      matches.push(fullPath);
+    }
+  }
+
   try {
-    const entries = await fs.readdir(dir);
-    return entries
-      .filter((name) => name.toLowerCase().endsWith(".csv") && include(name))
-      .map((name) => path.join(dir, name))
-      .sort();
+    await walk(dir);
+    return matches.sort();
   } catch (error) {
     return [];
   }
@@ -791,6 +1275,48 @@ function mergeDailyMetrics(metrics: DailyMetric[]): DailyMetric[] {
   );
 }
 
+function mergeTimeMatrixSlots(slots: BestTimeSlot[]): BestTimeSlot[] {
+  const byKey = new Map<string, BestTimeSlot>();
+
+  slots.forEach((slot) => {
+    const key = `${slot.day}-${slot.hour ?? "day"}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, { ...slot });
+      return;
+    }
+
+    existing.posts += slot.posts;
+    existing.impressions += slot.impressions;
+    existing.engagements += slot.engagements;
+    existing.engagementRate = existing.impressions
+      ? existing.engagements / existing.impressions
+      : null;
+  });
+
+  return Array.from(byKey.values())
+    .filter((slot) => slot.posts > 0)
+    .sort((a, b) => {
+      const dayDiff = dayOrder(a.day) - dayOrder(b.day);
+      if (dayDiff !== 0) return dayDiff;
+      if (a.hour === null && b.hour === null) return 0;
+      if (a.hour === null) return -1;
+      if (b.hour === null) return 1;
+      return a.hour - b.hour;
+    });
+}
+
+function rankTopTimeSlots(slots: BestTimeSlot[]): BestTimeSlot[] {
+  return [...slots]
+    .filter((slot) => slot.posts > 0)
+    .sort((a, b) => (b.engagementRate ?? 0) - (a.engagementRate ?? 0))
+    .slice(0, 5);
+}
+
+function dayOrder(day: string): number {
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(day);
+}
+
 function buildPlatformData(daily: DailyMetric[]): PlatformData {
   const monthly = aggregateByMonth(daily);
   const totals = summarizeTotals(monthly);
@@ -982,6 +1508,61 @@ function buildDayOfWeekSummary(daily: DailyMetric[]): DayOfWeekSummary[] {
   return summary;
 }
 
+function buildPerPostStats(daily: DailyMetric[]): PerPostStats {
+  const withPosts = daily.filter((metric) => metric.posts > 0);
+  if (withPosts.length === 0) {
+    return {
+      averagePerPost: null,
+      medianPerPost: null,
+      averagePerPostLatestMonth: null,
+      medianPerPostLatestMonth: null,
+      latestMonthLabel: "n/a"
+    };
+  }
+
+  const latestMetric = [...withPosts].sort(
+    (a, b) => a.date.getTime() - b.date.getTime()
+  )[withPosts.length - 1];
+  const latestMonthKey = toMonthKey(latestMetric.date);
+  const latestMonthRows = withPosts.filter(
+    (metric) => toMonthKey(metric.date) === latestMonthKey
+  );
+
+  const averagePerPost = calculateAveragePerPost(withPosts);
+  const medianPerPost = calculateMedian(
+    withPosts.map((metric) => metric.engagements / metric.posts)
+  );
+  const averagePerPostLatestMonth = calculateAveragePerPost(latestMonthRows);
+  const medianPerPostLatestMonth = calculateMedian(
+    latestMonthRows.map((metric) => metric.engagements / metric.posts)
+  );
+
+  return {
+    averagePerPost,
+    medianPerPost,
+    averagePerPostLatestMonth,
+    medianPerPostLatestMonth,
+    latestMonthLabel: formatMonthLabel(latestMonthKey)
+  };
+}
+
+function calculateAveragePerPost(rows: DailyMetric[]): number | null {
+  const totalPosts = rows.reduce((sum, row) => sum + row.posts, 0);
+  if (!totalPosts) return null;
+  const totalEngagements = rows.reduce((sum, row) => sum + row.engagements, 0);
+  return totalEngagements / totalPosts;
+}
+
+function calculateMedian(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return (sorted[middle - 1] + sorted[middle]) / 2;
+  }
+  return sorted[middle];
+}
+
 async function loadXVideoOverviewByDate(): Promise<{
   videoMap: Map<string, { views: number; watchTimeMs: number; completionRate: number }>;
   validation: CsvValidation;
@@ -1042,8 +1623,13 @@ async function loadXVideoOverviewByDate(): Promise<{
 
 async function loadXPostsData(): Promise<{
   topPosts: XPostSummary[];
+  bestTimes: BestTimeSlot[];
+  timeMatrix: BestTimeSlot[];
+  timeOfDayAvailable: boolean;
   validation: CsvValidation;
 }> {
+  const timeSlotMap = new Map<string, BestTimeSlot>();
+  let timeOfDayAvailable = false;
   const files = await resolveXPostFiles();
   const sourceGroup = await readCsvGroupWithFallback(files, X_POSTS_CSV_SAMPLE);
   const parsedGroups = sourceGroup.texts.map((text) =>
@@ -1105,6 +1691,13 @@ async function loadXPostsData(): Promise<{
       const createdAt = parseXPostDate(
         pickField(row, ["time", "Time", "Created at", "Date"])
       );
+      const rawCreatedAt = String(
+        pickField(row, ["time", "Time", "Created at", "Date"]) ?? ""
+      ).trim();
+      const hasTime = rawCreatedAt.includes(":");
+      if (hasTime) {
+        timeOfDayAvailable = true;
+      }
 
       if (!text && !link) return null;
 
@@ -1117,25 +1710,60 @@ async function loadXPostsData(): Promise<{
         replies,
         reposts,
         engagements,
-        engagementRate
-      } as XPostSummary;
+        engagementRate,
+        hasTime
+      } as XPostSummary & { hasTime: boolean };
     })
-    .filter(Boolean) as XPostSummary[];
+    .filter(Boolean) as (XPostSummary & { hasTime: boolean })[];
 
-  const deduped = new Map<string, XPostSummary>();
+  const deduped = new Map<string, XPostSummary & { hasTime: boolean }>();
   posts.forEach((post) => {
     const key = post.link || `${post.text}-${post.createdAt?.toISOString() ?? ""}`;
     const existing = deduped.get(key);
-    if (!existing || post.impressions > existing.impressions) {
+    if (
+      !existing ||
+      post.impressions > existing.impressions ||
+      (post.impressions === existing.impressions && post.hasTime && !existing.hasTime)
+    ) {
       deduped.set(key, post);
     }
   });
 
-  const topPosts = Array.from(deduped.values())
+  const uniquePosts = Array.from(deduped.values());
+  uniquePosts.forEach((post) => {
+    if (!post.createdAt) return;
+    const dayName = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][
+      post.createdAt.getUTCDay()
+    ];
+    const hour = post.hasTime ? post.createdAt.getUTCHours() : null;
+    const slotKey = hour === null ? dayName : `${dayName}-${hour}`;
+    const slot =
+      timeSlotMap.get(slotKey) ?? {
+        label: hour === null ? dayName : `${dayName} ${String(hour).padStart(2, "0")}:00`,
+        day: dayName,
+        hour,
+        posts: 0,
+        impressions: 0,
+        engagements: 0,
+        engagementRate: null
+      };
+
+    slot.posts += 1;
+    slot.impressions += post.impressions;
+    slot.engagements += post.engagements || post.likes + post.replies + post.reposts;
+    slot.engagementRate = slot.impressions ? slot.engagements / slot.impressions : null;
+    timeSlotMap.set(slotKey, slot);
+  });
+
+  const topPosts = uniquePosts
     .sort((a, b) => b.impressions - a.impressions)
+    .map(({ hasTime, ...summary }) => summary)
     .slice(0, 5);
 
-  return { topPosts, validation };
+  const timeMatrix = mergeTimeMatrixSlots(Array.from(timeSlotMap.values()));
+  const bestTimes = rankTopTimeSlots(timeMatrix);
+
+  return { topPosts, bestTimes, timeMatrix, timeOfDayAvailable, validation };
 }
 
 function calculateMomGrowth(monthly: MonthSummary[]): {
@@ -1227,6 +1855,7 @@ async function loadLinkedInPostsData(): Promise<{
   topPostsByRate: LinkedInPostSummary[];
   contentTypes: LinkedInContentTypeSummary[];
   bestTimes: BestTimeSlot[];
+  timeMatrix: BestTimeSlot[];
   timeOfDayAvailable: boolean;
   validation: CsvValidation;
 }> {
@@ -1395,10 +2024,8 @@ async function loadLinkedInPostsData(): Promise<{
     .sort((a, b) => (b.engagementRate ?? 0) - (a.engagementRate ?? 0))
     .slice(0, 5);
 
-  const bestTimes = Array.from(timeSlotMap.values())
-    .filter((slot) => slot.posts > 0)
-    .sort((a, b) => (b.engagementRate ?? 0) - (a.engagementRate ?? 0))
-    .slice(0, 5);
+  const timeMatrix = mergeTimeMatrixSlots(Array.from(timeSlotMap.values()));
+  const bestTimes = rankTopTimeSlots(timeMatrix);
 
   return {
     postsByDate,
@@ -1406,6 +2033,7 @@ async function loadLinkedInPostsData(): Promise<{
     topPostsByRate: sortedTopPostsByRate,
     contentTypes,
     bestTimes,
+    timeMatrix,
     timeOfDayAvailable,
     validation
   };

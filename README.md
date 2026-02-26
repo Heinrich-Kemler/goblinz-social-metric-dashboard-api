@@ -18,6 +18,26 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+## Screenshots (Template)
+
+Add images to `docs/screenshots/` with these suggested names:
+
+- `01-hero.png`
+- `02-metric-controls.png`
+- `03-overview-visuals.png`
+- `04-best-time-matrix.png`
+
+Then update/keep this section:
+
+```md
+## Dashboard Preview
+
+![Hero](docs/screenshots/01-hero.png)
+![Metric Controls](docs/screenshots/02-metric-controls.png)
+![Overview Visuals](docs/screenshots/03-overview-visuals.png)
+![Best Day + Hour Matrix](docs/screenshots/04-best-time-matrix.png)
+```
+
 ## Environment setup
 
 Create `.env.local` from `.env.example` and set only what you need.
@@ -26,12 +46,24 @@ Create `.env.local` from `.env.example` and set only what you need.
 cp .env.example .env.local
 ```
 
+## Beginner setup helper (LLM prompt)
+
+- Open `/Users/cryptogoblinbonk/Desktop/Metrics dashboard/goblinz-social-metric-dashboard-privateapi/PROMPT.md`
+- Copy and paste it into ChatGPT/Claude/Gemini.
+- It is written for one-step-at-a-time setup and troubleshooting.
+
 ## Data modes
 
-- `X_DATA_MODE=auto` (default): use X API when configured, otherwise CSV.
+- `X_DATA_MODE=auto` (default): CSV-first + API enrichment. CSV stays the baseline history; API rows are merged on top when available.
 - `X_DATA_MODE=api`: force X API, fallback to CSV only if API returns no usable data.
 - `X_DATA_MODE=csv`: always use CSV.
-- `LINKEDIN_DATA_MODE=auto|csv|api`: use LinkedIn API when configured, otherwise CSV fallback.
+- `LINKEDIN_DATA_MODE=auto|csv|api`: same behavior as X per mode (`auto` = CSV-first + API merge).
+
+## Refresh policy (cost control)
+
+- `API_REFRESH_MODE=manual` (default): API is fetched only when you click **Manual API Refresh**.
+- `API_REFRESH_MODE=auto`: API can refresh during normal page loads (subject to cache TTL).
+- `Reload CSV` refreshes the dashboard without triggering API calls.
 
 ## X API setup (v1)
 
@@ -43,12 +75,14 @@ Required for X API mode:
 Optional:
 
 - `X_API_LOOKBACK_DAYS` (default `30`, bounded to `7..30`)
+- `X_API_CACHE_SECONDS` (default `900`)
 
 The X provider currently pulls your recent tweets and aggregates:
 
 - Daily impressions (when available), likes, replies, reposts/quotes
 - Daily post counts
 - Top posts by impressions
+- Best posting time slots (day + hour, UTC)
 
 ## LinkedIn API setup (v1 adapter)
 
@@ -60,6 +94,7 @@ Required for LinkedIn API mode:
 Optional:
 
 - `LINKEDIN_API_LOOKBACK_DAYS` (default `30`)
+- `LINKEDIN_API_CACHE_SECONDS` (default `900`)
 - `LINKEDIN_API_VERSION` (default `202506`)
 
 The LinkedIn provider currently attempts to ingest:
@@ -91,12 +126,42 @@ Monthly naming pattern is supported, for example:
 
 The loader merges overlaps and keeps the most complete values per day.
 
+Subfolders are supported under `Data/raw` (recursive scan), for example:
+
+- `Data/raw/rolling-year/`
+- `Data/raw/monthly/2026-01/`
+- `Data/raw/monthly/2026-02/`
+
+## Manual refresh and cost control
+
+- API responses are cached server-side (15 minutes by default when auto refresh is enabled).
+- Use the **Manual API Refresh** button when you want a fresh pull now.
+- The refresh button shows a confirmation because API pulls may use paid credits.
+- **Reload CSV** refreshes local CSV-derived metrics without API calls.
+- For lowest cost, set `X_DATA_MODE=csv` and/or `LINKEDIN_DATA_MODE=csv`.
+- Practical strategy: keep monthly CSV exports as your long-term archive, then use `auto` only when you need recent API enrichment.
+
+## Metrics source map
+
+- Works in CSV mode:
+  - Core daily/monthly views, likes, comments, reposts
+  - Top posts (from CSV post exports)
+  - CSV validation + data quality panels
+- Improved by API mode:
+  - Recent data enrichment on top of CSV history
+  - API freshness timestamps in the hero chips
+  - X best day+hour from API tweet timestamps (or CSV post timestamps)
+  - Per-post engagement stats (average + median)
+  - Day/hour matrix view per platform
+- Full panel-by-panel breakdown: see `METRICS_REFERENCE.md`.
+
 ## Security notes
 
 - Keep tokens only in `.env.local`.
 - Never expose secrets in `NEXT_PUBLIC_*` vars.
 - API calls happen server-side only.
 - `.env*` must stay gitignored.
+- You are responsible for API credential handling and any usage costs charged by providers.
 
 ## Current v1 limits
 
@@ -106,7 +171,6 @@ The loader merges overlaps and keeps the most complete values per day.
 
 ## Next versions
 
-- LinkedIn API connector
 - Scheduled ingestion job + persistent database
 - Supporter/community scoring pipeline
 

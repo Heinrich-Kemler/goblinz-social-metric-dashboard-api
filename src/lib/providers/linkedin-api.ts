@@ -15,20 +15,52 @@ export type LinkedInApiSnapshot = {
   topPostsByRate: LinkedInPostSummary[];
   contentTypes: LinkedInContentTypeSummary[];
   bestTimes: BestTimeSlot[];
+  timeMatrix: BestTimeSlot[];
   timeOfDayAvailable: boolean;
-  source: "api" | "disabled" | "error";
+  source: "api" | "disabled" | "error" | "paused";
+  fetchedAt: Date | null;
   error?: string;
+};
+
+type LoadOptions = {
+  forceRefresh?: boolean;
+  manualOnly?: boolean;
 };
 
 const API_BASE = process.env.LINKEDIN_API_BASE_URL ?? "https://api.linkedin.com/rest";
 const API_VERSION = process.env.LINKEDIN_API_VERSION ?? "202506";
+const CACHE_SECONDS = clampNumber(
+  process.env.LINKEDIN_API_CACHE_SECONDS,
+  900,
+  30,
+  86400
+);
+let snapshotCache: { expiresAt: number; value: LinkedInApiSnapshot } | null = null;
 
-export async function loadLinkedInApiSnapshot(): Promise<LinkedInApiSnapshot> {
+export async function loadLinkedInApiSnapshot(
+  options: LoadOptions = {}
+): Promise<LinkedInApiSnapshot> {
+  if (!options.forceRefresh && snapshotCache) {
+    if (options.manualOnly) {
+      return snapshotCache.value;
+    }
+    if (Date.now() < snapshotCache.expiresAt) {
+      return snapshotCache.value;
+    }
+  }
+
+  if (options.manualOnly && !options.forceRefresh) {
+    return {
+      ...emptySnapshot("paused"),
+      fetchedAt: snapshotCache?.value.fetchedAt ?? null
+    };
+  }
+
   const token = process.env.LINKEDIN_API_ACCESS_TOKEN;
   const org = normalizeOrganizationUrn(process.env.LINKEDIN_ORGANIZATION_URN);
 
   if (!token || !org) {
-    return emptySnapshot("disabled");
+    return cacheAndReturn(emptySnapshot("disabled"));
   }
 
   try {
@@ -43,20 +75,23 @@ export async function loadLinkedInApiSnapshot(): Promise<LinkedInApiSnapshot> {
     ]);
 
     const daily = mergeLinkedInDaily(shareStats, pageStats, followerStats);
-    return {
+    return cacheAndReturn({
       daily,
       topPosts: [],
       topPostsByRate: [],
       contentTypes: [],
       bestTimes: [],
+      timeMatrix: [],
       timeOfDayAvailable: false,
-      source: "api"
-    };
+      source: "api",
+      fetchedAt: new Date()
+    });
   } catch (error) {
-    return {
+    return cacheAndReturn({
       ...emptySnapshot("error"),
+      fetchedAt: null,
       error: error instanceof Error ? error.message : "Unknown LinkedIn API error"
-    };
+    });
   }
 }
 
@@ -220,15 +255,17 @@ function ensureMetric(byDay: Map<string, DailyMetric>, dayKey: string): DailyMet
   return metric;
 }
 
-function emptySnapshot(source: "disabled" | "error"): LinkedInApiSnapshot {
+function emptySnapshot(source: "disabled" | "error" | "paused"): LinkedInApiSnapshot {
   return {
     daily: [],
     topPosts: [],
     topPostsByRate: [],
     contentTypes: [],
     bestTimes: [],
+    timeMatrix: [],
     timeOfDayAvailable: false,
-    source
+    source,
+    fetchedAt: null
   };
 }
 
@@ -290,4 +327,12 @@ function clampNumber(
   const parsed = Number(value ?? "");
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, Math.round(parsed)));
+}
+
+function cacheAndReturn(value: LinkedInApiSnapshot): LinkedInApiSnapshot {
+  snapshotCache = {
+    expiresAt: Date.now() + CACHE_SECONDS * 1000,
+    value
+  };
+  return value;
 }

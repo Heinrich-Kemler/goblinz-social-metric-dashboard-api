@@ -1,11 +1,59 @@
+import Link from "next/link";
 import { DashboardCharts } from "@/components/DashboardCharts";
+import { ManualRefreshButton } from "@/components/ManualRefreshButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { formatCompact, formatNumber, formatPercent } from "@/lib/format";
 import { getDashboardData } from "@/lib/metrics";
 
+type MetricPanelKey =
+  | "snapshot"
+  | "totals"
+  | "data_quality"
+  | "per_post"
+  | "quality_signals"
+  | "efficiency_signals"
+  | "video_watch"
+  | "overview_visuals"
+  | "top_posts"
+  | "best_times"
+  | "time_matrix";
+
+const METRIC_PANELS: { key: MetricPanelKey; label: string }[] = [
+  { key: "snapshot", label: "Latest Snapshot" },
+  { key: "totals", label: "Totals" },
+  { key: "data_quality", label: "Data Quality" },
+  { key: "per_post", label: "Per-Post Stats" },
+  { key: "quality_signals", label: "Quality Signals" },
+  { key: "efficiency_signals", label: "Efficiency Signals" },
+  { key: "video_watch", label: "Video Watch Time" },
+  { key: "overview_visuals", label: "Overview Visuals" },
+  { key: "top_posts", label: "Top Posts" },
+  { key: "best_times", label: "Best Times" },
+  { key: "time_matrix", label: "Day/Hour Matrix" }
+];
+
 // Server component: data is loaded here so charts can stay focused on rendering.
-export default async function HomePage() {
-  const data = await getDashboardData();
+export default async function HomePage({
+  searchParams
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = searchParams ? await searchParams : {};
+  const panelParam = Array.isArray(params.panels) ? params.panels[0] : params.panels;
+  const visiblePanels = parseVisiblePanels(panelParam);
+  const baseQuery = buildBaseQuery(params);
+  const refreshToken = Array.isArray(params.refresh)
+    ? params.refresh[0]
+    : params.refresh;
+  const forceRefresh = shouldForceRefresh(refreshToken);
+  const data = await getDashboardData({ forceRefresh });
+  const xSource = data.sourceStates.find((state) => state.platform === "x");
+  const linkedInSource = data.sourceStates.find(
+    (state) => state.platform === "linkedin"
+  );
+  const xApiEnabled = xSource?.mode === "api" || xSource?.mode === "hybrid";
+  const linkedInApiEnabled =
+    linkedInSource?.mode === "api" || linkedInSource?.mode === "hybrid";
 
   const latestMonth = data.combined.monthly[data.combined.monthly.length - 1] ?? null;
   const latestMonthKey = latestMonth?.monthKey ?? "";
@@ -19,6 +67,15 @@ export default async function HomePage() {
   const dataFreshness = data.combined.coverage.end
     ? formatDateShort(data.combined.coverage.end)
     : "n/a";
+  const sourceNotes = Array.from(
+    new Set(data.sourceStates.map((state) => state.note).filter(Boolean) as string[])
+  );
+  const xApiFreshness = formatApiFreshness(
+    xSource?.lastApiRefreshIso
+  );
+  const linkedInApiFreshness = formatApiFreshness(
+    linkedInSource?.lastApiRefreshIso
+  );
 
   // Latest month KPIs show true month-over-month comparison.
   const latestMonthCards = [
@@ -124,26 +181,36 @@ export default async function HomePage() {
     }
   ];
 
-  const csvTemplates = [
+  const perPostCards = [
     {
-      label: "X account analytics",
-      href: "/templates/x_account_analytics_template.csv"
+      label: "X Avg Engagement / Post",
+      value: data.xPerPostStats.averagePerPostLatestMonth,
+      period: data.xPerPostStats.latestMonthLabel
     },
     {
-      label: "X post analytics",
-      href: "/templates/x_post_analytics_template.csv"
+      label: "X Median Engagement / Post",
+      value: data.xPerPostStats.medianPerPostLatestMonth,
+      period: data.xPerPostStats.latestMonthLabel
     },
     {
-      label: "X video overview",
-      href: "/templates/x_video_overview_template.csv"
+      label: "LinkedIn Avg Engagement / Post",
+      value: data.linkedinPerPostStats.averagePerPostLatestMonth,
+      period: data.linkedinPerPostStats.latestMonthLabel
     },
     {
-      label: "LinkedIn metrics",
-      href: "/templates/linkedin_metrics_template.csv"
+      label: "LinkedIn Median Engagement / Post",
+      value: data.linkedinPerPostStats.medianPerPostLatestMonth,
+      period: data.linkedinPerPostStats.latestMonthLabel
     },
     {
-      label: "LinkedIn posts",
-      href: "/templates/linkedin_posts_template.csv"
+      label: "X Avg Engagement / Post (All Time)",
+      value: data.xPerPostStats.averagePerPost,
+      period: "All time"
+    },
+    {
+      label: "LinkedIn Avg Engagement / Post (All Time)",
+      value: data.linkedinPerPostStats.averagePerPost,
+      period: "All time"
     }
   ];
 
@@ -153,7 +220,11 @@ export default async function HomePage() {
       <section className="relative overflow-hidden rounded-[28px] border border-white/60 bg-white/70 p-10 shadow-glow">
         <div className="absolute -right-20 -top-20 h-56 w-56 rounded-full bg-sea/20 blur-3xl" />
         <div className="absolute -bottom-32 left-10 h-72 w-72 rounded-full bg-moss/25 blur-3xl" />
-        <div className="relative z-10 flex flex-wrap items-start justify-between gap-6">
+        <div className="relative z-20 mb-4 flex flex-col items-end gap-3 md:absolute md:mb-0 md:right-6 md:top-6">
+          <ThemeToggle />
+          <ManualRefreshButton />
+        </div>
+        <div className="relative z-10 pr-0 md:pr-56">
           <div>
             <p className="muted text-sm uppercase tracking-[0.3em]">
               Open social analytics
@@ -173,7 +244,10 @@ export default async function HomePage() {
                 Data freshness: {dataFreshness}
               </div>
               <div className="glass rounded-full px-4 py-2">
-                Data source: hybrid (API + CSV)
+                Data pipeline: CSV-first with optional API enrichment
+              </div>
+              <div className="glass rounded-full px-4 py-2">
+                API freshness: X {xApiFreshness}, LinkedIn {linkedInApiFreshness}
               </div>
               {data.sourceStates.map((state) => (
                 <div
@@ -184,8 +258,12 @@ export default async function HomePage() {
                 </div>
               ))}
             </div>
+            {sourceNotes.length > 0 && (
+              <p className="muted mt-3 text-xs">
+                {sourceNotes.join(" ")}
+              </p>
+            )}
           </div>
-          <ThemeToggle />
         </div>
       </section>
 
@@ -204,7 +282,81 @@ export default async function HomePage() {
         </section>
       )}
 
+      {/* Setup checklist: clear next steps for API and CSV setup without reading env docs. */}
+      <section className="mt-6 card p-6">
+        <h2 className="section-title text-xl">Setup Checklist</h2>
+        <p className="muted mt-2 text-sm">
+          This panel shows what is configured right now and what to fix next.
+        </p>
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          {data.setupChecks.map((check) => {
+            const tone = getSetupTone(check.status);
+            return (
+              <div key={check.id} className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-ink">{check.label}</p>
+                  <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${tone}`}>
+                    {check.status.toUpperCase()}
+                  </span>
+                </div>
+                <p className="muted mt-2 text-xs">{check.detail}</p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Metric controls: clear ON/OFF status and section visibility toggles. */}
+      <section className="mt-6 card p-6">
+        <h2 className="section-title text-xl">Metric Controls</h2>
+        <p className="muted mt-2 text-sm">
+          Toggle dashboard sections without changing stored data. API indicators show which
+          advanced datasets are currently active.
+        </p>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <StatusPill label="X API Enrichment" active={Boolean(xApiEnabled)} />
+          <StatusPill
+            label="LinkedIn API Enrichment"
+            active={Boolean(linkedInApiEnabled)}
+          />
+          <StatusPill label="X Best Hour Data" active={data.xTimeOfDayAvailable} />
+          <StatusPill label="LinkedIn Best Hour Data" active={data.timeOfDayAvailable} />
+          <StatusPill
+            label="X Video Watch Data"
+            active={data.x.totals.videoWatchViews > 0}
+          />
+        </div>
+
+        <div className="mt-5 flex flex-wrap gap-2">
+          {METRIC_PANELS.map((panel) => {
+            const isVisible = visiblePanels.has(panel.key);
+            const href = buildPanelToggleHref(baseQuery, panel.key, visiblePanels);
+
+            return (
+              <Link
+                key={panel.key}
+                href={href}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                  isVisible
+                    ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                    : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <span
+                  className={`h-2.5 w-2.5 rounded-full ${
+                    isVisible ? "bg-emerald-500" : "bg-slate-300"
+                  }`}
+                />
+                {panel.label}
+              </Link>
+            );
+          })}
+        </div>
+      </section>
+
       {/* Top-line KPIs: latest month snapshot with MoM context. */}
+      {visiblePanels.has("snapshot") && (
       <section className="mt-10">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -237,8 +389,10 @@ export default async function HomePage() {
           ))}
         </div>
       </section>
+      )}
 
       {/* Totals row: full-range cumulative numbers without MoM. */}
+      {visiblePanels.has("totals") && (
       <section className="mt-10">
         <h2 className="section-title text-2xl">Totals (All Time)</h2>
         <div className="mt-6 grid gap-6 lg:grid-cols-3">
@@ -255,8 +409,10 @@ export default async function HomePage() {
           ))}
         </div>
       </section>
+      )}
 
       {/* Data health: coverage plus CSV validation so imports never crash silently. */}
+      {visiblePanels.has("data_quality") && (
       <section className="mt-10">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -343,31 +499,10 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
-
-      {/* Downloadable CSV templates for anyone starting from scratch. */}
-      <section className="mt-10">
-        <h2 className="section-title text-2xl">CSV Templates</h2>
-        <p className="muted mt-2 text-sm">
-          Download, fill, and drop into <span className="font-semibold text-ink">Data/raw</span>.
-        </p>
-        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {csvTemplates.map((template) => (
-            <a
-              key={template.label}
-              href={template.href}
-              download
-              className="card flex items-center justify-between gap-3 p-4 text-sm text-slate transition hover:-translate-y-1 hover:shadow-glow"
-            >
-              <span className="font-semibold text-ink">{template.label}</span>
-              <span className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate">
-                Download
-              </span>
-            </a>
-          ))}
-        </div>
-      </section>
+      )}
 
       {/* Quality signals: CTR and engagement rate trends by platform. */}
+      {visiblePanels.has("quality_signals") && (
       <section className="mt-10">
         <h2 className="section-title text-2xl">Quality Signals</h2>
         <p className="muted mt-2 text-sm">
@@ -396,8 +531,36 @@ export default async function HomePage() {
           ))}
         </div>
       </section>
+      )}
+
+      {/* Per-post engagement signals: adds average + median perspective. */}
+      {visiblePanels.has("per_post") && (
+      <section className="mt-10">
+        <h2 className="section-title text-2xl">Per-Post Engagement</h2>
+        <p className="muted mt-2 text-sm">
+          Uses average and median engagement-per-post to reduce outlier bias.
+        </p>
+        <div className="mt-6 grid gap-6 lg:grid-cols-3">
+          {perPostCards.map((card) => (
+            <div key={card.label} className="card p-6">
+              <p className="muted text-sm">{card.label}</p>
+              <div className="mt-3 flex items-baseline gap-3">
+                <span className="section-title text-3xl">
+                  {formatPerPost(card.value)}
+                </span>
+              </div>
+              <p className="muted mt-2 text-xs">{card.period}</p>
+            </div>
+          ))}
+        </div>
+        <p className="muted mt-3 text-xs">
+          Median is calculated from daily engagement-per-post values where post counts exist.
+        </p>
+      </section>
+      )}
 
       {/* Efficiency signals: rate-per-1k metrics for X. */}
+      {visiblePanels.has("efficiency_signals") && (
       <section className="mt-10">
         <h2 className="section-title text-2xl">Efficiency Signals (X)</h2>
         <p className="muted mt-2 text-sm">
@@ -418,8 +581,10 @@ export default async function HomePage() {
           ))}
         </div>
       </section>
+      )}
 
       {/* Video watch time summary (X). */}
+      {visiblePanels.has("video_watch") && (
       <section className="mt-10">
         <h2 className="section-title text-2xl">Video Watch Time (X)</h2>
         <p className="muted mt-2 text-sm">
@@ -459,8 +624,10 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+      )}
 
       {/* Chart suite: combined + platform-specific trends. */}
+      {visiblePanels.has("overview_visuals") && (
       <section className="mt-12">
         <h2 className="section-title text-2xl">Overview Visuals</h2>
         <p className="muted mt-2 max-w-2xl text-sm">
@@ -477,6 +644,7 @@ export default async function HomePage() {
           />
         </div>
       </section>
+      )}
 
       {/* Coverage cards communicate how complete each platform export is. */}
       <section className="mt-12 grid gap-6 lg:grid-cols-2">
@@ -556,6 +724,7 @@ export default async function HomePage() {
       </section>
 
       {/* Top X posts: requires the post-level X export. */}
+      {visiblePanels.has("top_posts") && (
       <section className="mt-12 card p-6">
         <h3 className="section-title text-lg">Top X Posts</h3>
         <p className="muted text-sm">
@@ -617,8 +786,10 @@ export default async function HomePage() {
           </div>
         )}
       </section>
+      )}
 
       {/* Top LinkedIn content table: helps spot which posts drive the most reach. */}
+      {visiblePanels.has("top_posts") && (
       <section className="mt-12 card p-6">
         <h3 className="section-title text-lg">Top LinkedIn Posts</h3>
         <p className="muted text-sm">
@@ -671,8 +842,10 @@ export default async function HomePage() {
           </div>
         )}
       </section>
+      )}
 
       {/* Top LinkedIn posts by engagement rate. */}
+      {visiblePanels.has("top_posts") && (
       <section className="mt-12 card p-6">
         <h3 className="section-title text-lg">Top LinkedIn Posts (Engagement Rate)</h3>
         <p className="muted text-sm">
@@ -729,8 +902,52 @@ export default async function HomePage() {
           </div>
         )}
       </section>
+      )}
+
+      {/* Best times to post for X: uses post-level timestamps from CSV/API when available. */}
+      {visiblePanels.has("best_times") && (
+      <section className="mt-12 card p-6">
+        <h3 className="section-title text-lg">Best Times to Post (X)</h3>
+        <p className="muted text-sm">
+          Ranked by engagement rate from X post-level data.
+        </p>
+        {!data.xTimeOfDayAvailable && (
+          <p className="muted mt-2 text-xs">
+            Time-of-day is not available in current X sources. Showing best days only.
+          </p>
+        )}
+        {data.xBestTimes.length === 0 ? (
+          <p className="muted mt-4 text-sm">
+            Add <span className="font-semibold text-ink">Data/raw/x_post_analytics.csv</span>{" "}
+            or use X API mode to see this breakdown.
+          </p>
+        ) : (
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {data.xBestTimes.map((slot) => (
+              <div
+                key={`x-${slot.label}`}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-4"
+              >
+                <p className="text-xs uppercase tracking-[0.2em] text-slate">
+                  {slot.label}
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-ink">
+                  {slot.engagementRate !== null
+                    ? formatPercent(slot.engagementRate)
+                    : "n/a"}
+                </p>
+                <p className="muted mt-1 text-xs">
+                  {slot.posts} posts - {formatNumber(slot.impressions)} impressions
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+      )}
 
       {/* Best times to post: uses time-of-day if available, otherwise day-of-week. */}
+      {visiblePanels.has("best_times") && (
       <section className="mt-12 card p-6">
         <h3 className="section-title text-lg">Best Times to Post (LinkedIn)</h3>
         <p className="muted text-sm">
@@ -770,6 +987,30 @@ export default async function HomePage() {
           </div>
         )}
       </section>
+      )}
+
+      {visiblePanels.has("time_matrix") && (
+      <section className="mt-12 card p-6">
+        <h3 className="section-title text-lg">Best Day + Hour Matrix</h3>
+        <p className="muted text-sm">
+          Heatmap of engagement rate by day and posting hour (UTC), split by platform.
+        </p>
+        <div className="mt-6 grid gap-8 lg:grid-cols-2">
+          <TimeMatrixCard
+            title="X Matrix"
+            slots={data.xTimeMatrix}
+            showHourly={data.xTimeOfDayAvailable}
+            emptyState="Add X post analytics CSV or enable X API to populate this matrix."
+          />
+          <TimeMatrixCard
+            title="LinkedIn Matrix"
+            slots={data.linkedinTimeMatrix}
+            showHourly={data.timeOfDayAvailable}
+            emptyState="Add LinkedIn posts CSV with Created date timestamps to populate this matrix."
+          />
+        </div>
+      </section>
+      )}
 
       {/* Day-of-week heatmap: visually shows the strongest days for views. */}
       <section className="mt-12 card p-6">
@@ -780,6 +1021,23 @@ export default async function HomePage() {
         <div className="mt-6 grid grid-cols-7 gap-3">
           {renderDayOfWeekHeatmap(data.dayOfWeek)}
         </div>
+      </section>
+
+      <section className="mt-12 card p-6">
+        <h3 className="section-title text-lg">API Safety & Billing Disclaimer</h3>
+        <ul className="muted mt-3 list-disc pl-5 text-sm">
+          <li>
+            This software is provided as-is under open-source terms. You are responsible for
+            your own API usage and account billing.
+          </li>
+          <li>
+            Keep API keys and tokens in server-side env files only (for example: `.env.local`).
+            Do not place secrets in `NEXT_PUBLIC_*` variables.
+          </li>
+          <li>
+            Use CSV mode or manual refresh when you want tighter control over API costs.
+          </li>
+        </ul>
       </section>
 
       <footer className="mt-16 text-center text-sm text-slate">
@@ -825,6 +1083,128 @@ export default async function HomePage() {
   );
 }
 
+function TimeMatrixCard({
+  title,
+  slots,
+  showHourly,
+  emptyState
+}: {
+  title: string;
+  slots: {
+    day: string;
+    hour: number | null;
+    posts: number;
+    engagementRate: number | null;
+  }[];
+  showHourly: boolean;
+  emptyState: string;
+}) {
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const hasHourlySlots = showHourly && slots.some((slot) => slot.hour !== null);
+
+  if (slots.length === 0) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white/70 p-4">
+        <p className="text-sm font-semibold text-ink">{title}</p>
+        <p className="muted mt-2 text-xs">{emptyState}</p>
+      </div>
+    );
+  }
+
+  const maxRate = Math.max(...slots.map((slot) => slot.engagementRate ?? 0), 0);
+  const slotMap = new Map(
+    slots.map((slot) => [`${slot.day}-${slot.hour ?? "day"}`, slot])
+  );
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white/70 p-4">
+      <p className="text-sm font-semibold text-ink">{title}</p>
+      {hasHourlySlots ? (
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-[840px] text-xs">
+            <thead>
+              <tr>
+                <th className="px-2 py-1 text-left text-slate">Day</th>
+                {Array.from({ length: 24 }, (_, hour) => (
+                  <th key={`${title}-h-${hour}`} className="px-1 py-1 text-slate">
+                    {String(hour).padStart(2, "0")}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {dayNames.map((day) => (
+                <tr key={`${title}-${day}`}>
+                  <td className="px-2 py-1 font-semibold text-ink">{day}</td>
+                  {Array.from({ length: 24 }, (_, hour) => {
+                    const slot = slotMap.get(`${day}-${hour}`);
+                    const rate = slot?.engagementRate ?? null;
+                    const intensity =
+                      rate !== null && maxRate > 0
+                        ? 0.12 + (rate / maxRate) * 0.68
+                        : 0;
+                    return (
+                      <td key={`${title}-${day}-${hour}`} className="px-1 py-1">
+                        <div
+                          className="h-6 w-6 rounded border border-slate-200/70 text-center leading-6"
+                          style={{
+                            backgroundColor:
+                              rate !== null
+                                ? `rgba(var(--accent-rgb), ${intensity})`
+                                : "rgba(148, 163, 184, 0.1)"
+                          }}
+                          title={
+                            rate !== null
+                              ? `${day} ${String(hour).padStart(2, "0")}:00 - ${formatPercent(
+                                  rate
+                                )} (${slot?.posts ?? 0} posts)`
+                              : `${day} ${String(hour).padStart(2, "0")}:00 - no posts`
+                          }
+                        >
+                          {slot ? "•" : ""}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="mt-3 grid grid-cols-7 gap-2">
+          {dayNames.map((day) => {
+            const slot = slotMap.get(`${day}-day`) ?? slotMap.get(`${day}-null`);
+            const rate = slot?.engagementRate ?? null;
+            const intensity =
+              rate !== null && maxRate > 0 ? 0.18 + (rate / maxRate) * 0.62 : 0.08;
+            return (
+              <div
+                key={`${title}-${day}-day`}
+                className="rounded-lg border border-slate-200 px-2 py-3 text-center"
+                style={{
+                  backgroundColor:
+                    rate !== null
+                      ? `rgba(var(--accent-rgb), ${intensity})`
+                      : "rgba(148, 163, 184, 0.12)"
+                }}
+              >
+                <p className="text-[11px] font-semibold text-ink">{day}</p>
+                <p className="mt-1 text-[11px] text-slate">
+                  {rate !== null ? formatPercent(rate) : "n/a"}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className="muted mt-2 text-[11px]">
+        Dot intensity = relative engagement rate for that platform.
+      </p>
+    </div>
+  );
+}
+
 function getValidationStatus(item: {
   source: string;
   missingRequired: string[];
@@ -840,6 +1220,96 @@ function getValidationStatus(item: {
     return { label: "Partial", tone: "bg-slate-100 text-slate-700" };
   }
   return { label: "OK", tone: "bg-emerald-50 text-emerald-700" };
+}
+
+function getSetupTone(status: "ok" | "warning" | "info") {
+  if (status === "ok") {
+    return "bg-emerald-50 text-emerald-700";
+  }
+  if (status === "warning") {
+    return "bg-amber-50 text-amber-700";
+  }
+  return "bg-slate-100 text-slate-700";
+}
+
+function StatusPill({ label, active }: { label: string; active: boolean }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
+      <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+        <span
+          className={`h-2.5 w-2.5 rounded-full ${
+            active ? "bg-emerald-500" : "bg-slate-300"
+          }`}
+        />
+        {label}
+      </p>
+      <p className="muted mt-1 text-xs">{active ? "ON" : "OFF"}</p>
+    </div>
+  );
+}
+
+function parseVisiblePanels(raw: string | undefined): Set<MetricPanelKey> {
+  const all = new Set(METRIC_PANELS.map((panel) => panel.key));
+  if (!raw) return all;
+
+  const parsed = raw
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part): part is MetricPanelKey =>
+      METRIC_PANELS.some((panel) => panel.key === part)
+    );
+
+  return parsed.length > 0 ? new Set(parsed) : all;
+}
+
+function buildBaseQuery(
+  params: Record<string, string | string[] | undefined>
+): URLSearchParams {
+  const query = new URLSearchParams();
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined) return;
+    if (key === "refresh") return;
+    const normalized = Array.isArray(value) ? value[0] : value;
+    if (!normalized) return;
+    query.set(key, normalized);
+  });
+
+  return query;
+}
+
+function buildPanelToggleHref(
+  baseQuery: URLSearchParams,
+  key: MetricPanelKey,
+  visiblePanels: Set<MetricPanelKey>
+): string {
+  const nextVisible = new Set(visiblePanels);
+  if (nextVisible.has(key)) {
+    nextVisible.delete(key);
+  } else {
+    nextVisible.add(key);
+  }
+
+  if (nextVisible.size === 0) {
+    nextVisible.add(key);
+  }
+
+  const nextQuery = new URLSearchParams(baseQuery.toString());
+  const allVisible = nextVisible.size === METRIC_PANELS.length;
+  if (allVisible) {
+    nextQuery.delete("panels");
+  } else {
+    nextQuery.set("panels", Array.from(nextVisible).join(","));
+  }
+
+  return nextQuery.toString() ? `?${nextQuery.toString()}` : "/";
+}
+
+function formatPerPost(value: number | null): string {
+  if (value === null || Number.isNaN(value)) return "n/a";
+  if (Math.abs(value) >= 1000) return formatCompact(value);
+  return value.toFixed(1);
 }
 
 function formatMissingList(values: string[]): string {
@@ -867,6 +1337,27 @@ function formatDateShort(date: Date): string {
     day: "numeric",
     year: "numeric"
   }).format(date);
+}
+
+function formatApiFreshness(iso: string | null | undefined): string {
+  if (!iso) return "n/a";
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return "n/a";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(parsed);
+}
+
+function shouldForceRefresh(token: string | undefined): boolean {
+  if (!token) return false;
+  const numeric = Number(token);
+  if (!Number.isFinite(numeric)) return false;
+  return Date.now() - numeric <= 30_000;
 }
 
 // Count how many daily rows fall into the target month (YYYY-MM).

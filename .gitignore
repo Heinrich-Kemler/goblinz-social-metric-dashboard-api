@@ -9,5 +9,10 @@ yarn-error.log*
 pnpm-debug.log*
 .env
 .env.*.local
+tsconfig.tsbuildinfo
 Data/raw/*
 !Data/raw/.gitkeep
+!Data/raw/rolling-year/
+!Data/raw/rolling-year/.gitkeep
+!Data/raw/monthly/
+!Data/raw/monthly/.gitkeep

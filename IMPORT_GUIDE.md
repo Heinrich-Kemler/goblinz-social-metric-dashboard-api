@@ -2,6 +2,22 @@
 
 This dashboard reads CSV files from `Data/raw/`. If a file is missing, it falls back to sample data and the UI will warn you.
 
+## Tools to install first
+
+- Node.js LTS (20+ recommended)
+- npm (included with Node)
+- Git
+- Optional editor: Cursor or VS Code
+
+Local launch command:
+
+```bash
+npm install
+npm run dev -- --hostname 127.0.0.1 --port 3002
+```
+
+Open `http://127.0.0.1:3002`.
+
 ## API mode (optional)
 
 X API can be enabled without disabling CSV.
@@ -18,21 +34,45 @@ LinkedIn API adapter is available in v1. Set:
 
 If API setup is incomplete, the app falls back to CSV.
 
+Mode behavior:
+
+- `auto` (recommended): CSV-first baseline + API merge when available.
+- `csv`: no API calls for that platform.
+- `api`: API first, CSV fallback only if API yields no usable rows.
+
+Refresh behavior:
+
+- `API_REFRESH_MODE=manual` (recommended): no background API pulls; API updates happen only via **Manual API Refresh**.
+- `API_REFRESH_MODE=auto`: API may refresh during normal page loads (cached).
+
 ## Folder structure
 
 ```
 Data/
   raw/
-    x_account_analytics.csv
-    x_post_analytics.csv
-    x_video_overview.csv
-    linkedin_metrics.csv
-    linkedin_posts.csv
+    rolling-year/
+      x_account_analytics_rolling.csv
+      linkedin_metrics_rolling.csv
+    monthly/
+      2026-01/
+        x_account_analytics_2026-01.csv
+        linkedin_metrics_2026-01.csv
+      2026-02/
+        x_account_analytics_2026-02.csv
+        linkedin_metrics_2026-02.csv
+        x_post_analytics_2026-02.csv
+        linkedin_posts_2026-02.csv
 ```
 
 Only the first two files are required.
 
-You can keep **multiple monthly exports** in the same folder. The dashboard will merge overlapping days and keep the most complete values per day (no double-counting).
+You can keep **multiple monthly exports** in the same folder or nested subfolders. The dashboard scans `Data/raw` recursively, merges overlapping days, and keeps the most complete values per day (no double-counting).
+
+Recommended monthly workflow:
+
+1. Keep your earliest historical CSV exports (do not remove them).
+2. Add the newest monthly CSV at month-end (`*_YYYY-MM.csv`).
+3. Leave mode as `auto` only when you want recent API enrichment; otherwise switch to `csv` for lowest cost.
 
 Suggested naming pattern:
 
@@ -60,6 +100,8 @@ Suggested naming pattern:
 - Required columns:
   - `Impressions`
   - Either a post text column (`Tweet text`) or a link column (`Tweet permalink`)
+- Optional but recommended:
+  - `Time` / `Created at` so the dashboard can rank best posting hours per day.
 
 ### 3) Video overview (optional)
 - File name: `x_video_overview.csv` (or `x_video_overview_YYYY-MM.csv`)

@@ -1,4 +1,4 @@
-import type { DailyMetric, XPostSummary } from "@/lib/metrics";
+import type { BestTimeSlot, DailyMetric, XPostSummary } from "@/lib/metrics";
 
 type XApiTweet = {
   id: string;
@@ -32,19 +32,59 @@ type XApiPage = {
 export type XApiSnapshot = {
   daily: DailyMetric[];
   topPosts: XPostSummary[];
-  source: "api" | "disabled" | "error";
+  bestTimes: BestTimeSlot[];
+  timeMatrix: BestTimeSlot[];
+  timeOfDayAvailable: boolean;
+  source: "api" | "disabled" | "error" | "paused";
+  fetchedAt: Date | null;
   error?: string;
+};
+
+type LoadOptions = {
+  forceRefresh?: boolean;
+  manualOnly?: boolean;
 };
 
 const API_BASE = "https://api.x.com/2";
 const MAX_PAGES = 8;
+const CACHE_SECONDS = clampNumber(process.env.X_API_CACHE_SECONDS, 900, 30, 86400);
+let snapshotCache: { expiresAt: number; value: XApiSnapshot } | null = null;
 
-export async function loadXApiSnapshot(): Promise<XApiSnapshot> {
+export async function loadXApiSnapshot(options: LoadOptions = {}): Promise<XApiSnapshot> {
+  if (!options.forceRefresh && snapshotCache) {
+    if (options.manualOnly) {
+      return snapshotCache.value;
+    }
+    if (Date.now() < snapshotCache.expiresAt) {
+      return snapshotCache.value;
+    }
+  }
+
+  if (options.manualOnly && !options.forceRefresh) {
+    return {
+      daily: [],
+      topPosts: [],
+      bestTimes: [],
+      timeMatrix: [],
+      timeOfDayAvailable: false,
+      source: "paused",
+      fetchedAt: snapshotCache?.value.fetchedAt ?? null
+    };
+  }
+
   const bearer = process.env.X_API_BEARER_TOKEN;
   const username = process.env.X_API_USERNAME;
 
   if (!bearer || !username) {
-    return { daily: [], topPosts: [], source: "disabled" };
+    return cacheAndReturn({
+      daily: [],
+      topPosts: [],
+      bestTimes: [],
+      timeMatrix: [],
+      timeOfDayAvailable: false,
+      source: "disabled",
+      fetchedAt: null
+    });
   }
 
   try {
@@ -55,33 +95,59 @@ export async function loadXApiSnapshot(): Promise<XApiSnapshot> {
 
     const userId = user.data?.id;
     if (!userId) {
-      return {
+      return cacheAndReturn({
         daily: [],
         topPosts: [],
+        bestTimes: [],
+        timeMatrix: [],
+        timeOfDayAvailable: false,
         source: "error",
+        fetchedAt: null,
         error: "Unable to resolve X username to user id."
-      };
+      });
     }
 
     const tweets = await fetchRecentTweets(userId, bearer);
     if (tweets.length === 0) {
-      return { daily: [], topPosts: [], source: "api" };
+      return cacheAndReturn({
+        daily: [],
+        topPosts: [],
+        bestTimes: [],
+        timeMatrix: [],
+        timeOfDayAvailable: false,
+        source: "api",
+        fetchedAt: new Date()
+      });
     }
 
     const daily = aggregateDaily(tweets);
+    const timeMatrix = buildTimeMatrix(tweets);
+    const bestTimes = rankTopSlots(timeMatrix);
     const topPosts = tweets
       .map(toPostSummary)
       .sort((a, b) => b.impressions - a.impressions)
       .slice(0, 5);
 
-    return { daily, topPosts, source: "api" };
+    return cacheAndReturn({
+      daily,
+      topPosts,
+      bestTimes,
+      timeMatrix,
+      timeOfDayAvailable: true,
+      source: "api",
+      fetchedAt: new Date()
+    });
   } catch (error) {
-    return {
+    return cacheAndReturn({
       daily: [],
       topPosts: [],
+      bestTimes: [],
+      timeMatrix: [],
+      timeOfDayAvailable: false,
       source: "error",
+      fetchedAt: null,
       error: error instanceof Error ? error.message : "Unknown X API error"
-    };
+    });
   }
 }
 
@@ -234,6 +300,66 @@ function toPostSummary(tweet: XApiTweet): XPostSummary {
   };
 }
 
+function buildTimeMatrix(tweets: XApiTweet[]): BestTimeSlot[] {
+  const slotMap = new Map<string, BestTimeSlot>();
+
+  tweets.forEach((tweet) => {
+    const createdAt = parseIsoDate(tweet.created_at);
+    if (!createdAt) return;
+
+    const impressions =
+      tweet.non_public_metrics?.impression_count ??
+      tweet.organic_metrics?.impression_count ??
+      tweet.public_metrics?.impression_count ??
+      0;
+    const engagements =
+      (tweet.public_metrics?.like_count ?? 0) +
+      (tweet.public_metrics?.reply_count ?? 0) +
+      (tweet.public_metrics?.retweet_count ?? 0) +
+      (tweet.public_metrics?.quote_count ?? 0);
+    const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][
+      createdAt.getUTCDay()
+    ];
+    const hour = createdAt.getUTCHours();
+    const label = `${day} ${String(hour).padStart(2, "0")}:00`;
+    const key = `${day}-${hour}`;
+
+    const slot =
+      slotMap.get(key) ?? {
+        label,
+        day,
+        hour,
+        posts: 0,
+        impressions: 0,
+        engagements: 0,
+        engagementRate: null
+      };
+    slot.posts += 1;
+    slot.impressions += impressions;
+    slot.engagements += engagements;
+    slot.engagementRate = slot.impressions ? slot.engagements / slot.impressions : null;
+    slotMap.set(key, slot);
+  });
+
+  return Array.from(slotMap.values())
+    .filter((slot) => slot.posts > 0)
+    .sort((a, b) => {
+      const dayDiff = dayOrder(a.day) - dayOrder(b.day);
+      if (dayDiff !== 0) return dayDiff;
+      return (a.hour ?? 0) - (b.hour ?? 0);
+    });
+}
+
+function rankTopSlots(slots: BestTimeSlot[]): BestTimeSlot[] {
+  return [...slots]
+    .sort((a, b) => (b.engagementRate ?? 0) - (a.engagementRate ?? 0))
+    .slice(0, 5);
+}
+
+function dayOrder(day: string): number {
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(day);
+}
+
 function sanitizeText(value: string): string {
   return value.replace(/\s+/g, " ").trim().slice(0, 140);
 }
@@ -267,4 +393,12 @@ function clampNumber(
   const parsed = Number(value ?? "");
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, Math.round(parsed)));
+}
+
+function cacheAndReturn(value: XApiSnapshot): XApiSnapshot {
+  snapshotCache = {
+    expiresAt: Date.now() + CACHE_SECONDS * 1000,
+    value
+  };
+  return value;
 }
