@@ -1,6 +1,46 @@
 Created date,Post title,Post link,Impressions,Views,Clicks,Likes,Comments,Reposts,Engagement rate,Content Type
-01/01/2026 09:00 AM,Launch week recap,https://www.linkedin.com/posts/example1,3200,2900,60,95,14,6,0.036,Image
-01/02/2026 11:30 AM,New case study,https://www.linkedin.com/posts/example2,4100,3700,75,120,18,7,0.035,Document
-01/03/2026 02:15 PM,Team spotlight,https://www.linkedin.com/posts/example3,2800,2500,50,80,10,5,0.034,Video
-01/04/2026 10:05 AM,Product demo,https://www.linkedin.com/posts/example4,5200,4800,95,150,22,9,0.035,Video
-01/05/2026 04:00 PM,Community shoutout,https://www.linkedin.com/posts/example5,3600,3300,65,110,16,6,0.036,Text
+01/01/2026 09:00 AM,Campaign insight 1 - creative test and performance,https://www.linkedin.com/posts/example1,3150,2614,56,94,11,7,0.0533,Image
+01/03/2026 10:10 AM,Campaign insight 2 - creative test and performance,https://www.linkedin.com/posts/example2,3007,2493,55,90,11,7,0.0542,Video
+01/05/2026 11:20 AM,Campaign insight 3 - creative test and performance,https://www.linkedin.com/posts/example3,3030,2506,57,90,11,7,0.0545,Document
+01/07/2026 01:30 PM,Campaign insight 4 - creative test and performance,https://www.linkedin.com/posts/example4,3237,2666,63,96,12,7,0.0550,Text
+01/09/2026 03:40 PM,Campaign insight 5 - creative test and performance,https://www.linkedin.com/posts/example5,3226,2643,64,95,12,7,0.0552,Carousel
+01/11/2026 04:50 PM,Campaign insight 6 - creative test and performance,https://www.linkedin.com/posts/example6,3095,2518,62,90,12,6,0.0549,Image
+01/13/2026 05:00 PM,Campaign insight 7 - creative test and performance,https://www.linkedin.com/posts/example7,3212,2592,66,93,12,6,0.0551,Video
+01/15/2026 09:10 AM,Campaign insight 8 - creative test and performance,https://www.linkedin.com/posts/example8,3328,2661,70,96,13,6,0.0556,Document
+01/17/2026 10:20 AM,Campaign insight 9 - creative test and performance,https://www.linkedin.com/posts/example9,3122,2471,66,89,12,6,0.0554,Text
+01/19/2026 11:30 AM,Campaign insight 10 - creative test and performance,https://www.linkedin.com/posts/example10,3075,2409,66,86,11,5,0.0546,Carousel
+01/21/2026 01:40 PM,Campaign insight 11 - creative test and performance,https://www.linkedin.com/posts/example11,3207,2486,69,89,12,5,0.0546,Image
+01/23/2026 03:50 PM,Campaign insight 12 - creative test and performance,https://www.linkedin.com/posts/example12,3121,2393,68,85,11,5,0.0541,Video
+01/25/2026 04:00 PM,Campaign insight 13 - creative test and performance,https://www.linkedin.com/posts/example13,2917,2214,64,78,10,4,0.0535,Document
+01/27/2026 05:10 PM,Campaign insight 14 - creative test and performance,https://www.linkedin.com/posts/example14,2969,2232,65,78,10,4,0.0529,Text
+01/29/2026 09:20 AM,Campaign insight 15 - creative test and performance,https://www.linkedin.com/posts/example15,3030,2258,66,78,9,4,0.0518,Carousel
+01/31/2026 10:30 AM,Campaign insight 16 - creative test and performance,https://www.linkedin.com/posts/example16,2780,2057,60,71,8,4,0.0514,Image
+02/02/2026 11:40 AM,Campaign insight 17 - creative test and performance,https://www.linkedin.com/posts/example17,3053,2245,66,76,9,4,0.0508,Video
+02/04/2026 01:50 PM,Campaign insight 18 - creative test and performance,https://www.linkedin.com/posts/example18,3172,2323,67,78,8,4,0.0495,Document
+02/06/2026 03:00 PM,Campaign insight 19 - creative test and performance,https://www.linkedin.com/posts/example19,3088,2255,65,75,8,4,0.0492,Text
+02/08/2026 04:10 PM,Campaign insight 20 - creative test and performance,https://www.linkedin.com/posts/example20,2904,2119,60,69,7,4,0.0482,Carousel
+02/10/2026 05:20 PM,Campaign insight 21 - creative test and performance,https://www.linkedin.com/posts/example21,2992,2186,61,70,7,4,0.0475,Image
+02/12/2026 09:30 AM,Campaign insight 22 - creative test and performance,https://www.linkedin.com/posts/example22,3102,2274,61,72,7,5,0.0467,Video
+02/14/2026 10:40 AM,Campaign insight 23 - creative test and performance,https://www.linkedin.com/posts/example23,2914,2146,56,66,6,4,0.0453,Document
+02/16/2026 11:50 AM,Campaign insight 24 - creative test and performance,https://www.linkedin.com/posts/example24,2909,2157,55,65,6,4,0.0447,Text
+02/18/2026 01:00 PM,Campaign insight 25 - creative test and performance,https://www.linkedin.com/posts/example25,3105,2320,57,69,6,5,0.0441,Carousel
+02/20/2026 03:10 PM,Campaign insight 26 - creative test and performance,https://www.linkedin.com/posts/example26,3102,2339,56,69,6,5,0.0438,Image
+02/22/2026 04:20 PM,Campaign insight 27 - creative test and performance,https://www.linkedin.com/posts/example27,2998,2282,52,66,6,5,0.0430,Video
+02/24/2026 05:30 PM,Campaign insight 28 - creative test and performance,https://www.linkedin.com/posts/example28,3161,2432,53,69,7,5,0.0424,Document
+02/26/2026 09:40 AM,Campaign insight 29 - creative test and performance,https://www.linkedin.com/posts/example29,3338,2596,55,73,7,5,0.0419,Text
+02/28/2026 10:50 AM,Campaign insight 30 - creative test and performance,https://www.linkedin.com/posts/example30,3207,2520,51,70,7,5,0.0415,Carousel
+03/02/2026 11:00 AM,Campaign insight 31 - creative test and performance,https://www.linkedin.com/posts/example31,3595,2855,56,79,9,6,0.0417,Image
+03/04/2026 01:10 PM,Campaign insight 32 - creative test and performance,https://www.linkedin.com/posts/example32,3820,3063,58,84,9,6,0.0411,Video
+03/06/2026 03:20 PM,Campaign insight 33 - creative test and performance,https://www.linkedin.com/posts/example33,3829,3098,57,85,10,6,0.0413,Document
+03/08/2026 04:30 PM,Campaign insight 34 - creative test and performance,https://www.linkedin.com/posts/example34,3721,3034,54,83,10,6,0.0411,Text
+03/10/2026 05:40 PM,Campaign insight 35 - creative test and performance,https://www.linkedin.com/posts/example35,3863,3170,55,88,11,6,0.0414,Carousel
+03/12/2026 09:50 AM,Campaign insight 36 - creative test and performance,https://www.linkedin.com/posts/example36,4004,3303,56,92,12,6,0.0415,Image
+03/14/2026 10:00 AM,Campaign insight 37 - creative test and performance,https://www.linkedin.com/posts/example37,3825,3167,53,89,12,6,0.0418,Video
+03/16/2026 11:10 AM,Campaign insight 38 - creative test and performance,https://www.linkedin.com/posts/example38,3804,3156,53,90,12,5,0.0421,Document
+03/18/2026 01:20 PM,Campaign insight 39 - creative test and performance,https://www.linkedin.com/posts/example39,3961,3287,55,95,13,6,0.0427,Text
+03/20/2026 03:30 PM,Campaign insight 40 - creative test and performance,https://www.linkedin.com/posts/example40,3899,3231,54,95,13,5,0.0428,Carousel
+03/22/2026 04:40 PM,Campaign insight 41 - creative test and performance,https://www.linkedin.com/posts/example41,3718,3072,52,92,12,5,0.0433,Image
+03/24/2026 05:50 PM,Campaign insight 42 - creative test and performance,https://www.linkedin.com/posts/example42,3789,3116,54,96,13,5,0.0443,Video
+03/26/2026 09:00 AM,Campaign insight 43 - creative test and performance,https://www.linkedin.com/posts/example43,3866,3161,56,99,13,5,0.0447,Document
+03/28/2026 10:10 AM,Campaign insight 44 - creative test and performance,https://www.linkedin.com/posts/example44,3630,2946,53,95,12,5,0.0455,Text
+03/30/2026 11:20 AM,Campaign insight 45 - creative test and performance,https://www.linkedin.com/posts/example45,3563,2867,54,95,12,5,0.0466,Carousel

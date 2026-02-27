@@ -126,6 +126,11 @@ export default async function HomePage({
   const latestLinkedIn =
     data.linkedin.monthly[data.linkedin.monthly.length - 1] ?? null;
   const prevLinkedIn = data.linkedin.monthly[data.linkedin.monthly.length - 2] ?? null;
+  const latestLinkedInVisitors = data.linkedinVisitors.latest;
+  const averageUniqueVisitors =
+    data.linkedinVisitors.coverage.days > 0
+      ? data.linkedinVisitors.totals.uniqueVisitors / data.linkedinVisitors.coverage.days
+      : null;
 
   const qualityCards = [
     {
@@ -704,6 +709,96 @@ export default async function HomePage({
           <p className="muted mt-4 text-xs">
             LinkedIn post counts are pulled from Data/raw/linkedin_posts.csv when
             it is available.
+          </p>
+        </div>
+      </section>
+
+      <section className="mt-6 grid gap-6 lg:grid-cols-2">
+        <div className="card p-6">
+          <h3 className="section-title text-lg">LinkedIn Visitors (Optional CSV)</h3>
+          <p className="muted text-sm">
+            {formatDateRange(
+              data.linkedinVisitors.coverage.start,
+              data.linkedinVisitors.coverage.end
+            )} - {data.linkedinVisitors.coverage.days} reporting days
+          </p>
+          <div className="mt-6 grid gap-4 text-sm text-slate">
+            <div className="flex items-center justify-between">
+              <span>Total Page Views</span>
+              <span className="font-semibold text-ink">
+                {formatNumber(data.linkedinVisitors.totals.pageViews)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Total Unique Visitors</span>
+              <span className="font-semibold text-ink">
+                {formatNumber(data.linkedinVisitors.totals.uniqueVisitors)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Latest Page Views</span>
+              <span className="font-semibold text-ink">
+                {latestLinkedInVisitors
+                  ? formatNumber(latestLinkedInVisitors.pageViews)
+                  : "n/a"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Avg Unique Visitors / Day</span>
+              <span className="font-semibold text-ink">
+                {averageUniqueVisitors !== null
+                  ? formatCompact(averageUniqueVisitors)
+                  : "n/a"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Custom Button Clicks</span>
+              <span className="font-semibold text-ink">
+                {formatNumber(data.linkedinVisitors.totals.customButtonClicks)}
+              </span>
+            </div>
+          </div>
+          <p className="muted mt-4 text-xs">
+            Auto-detects files named like{" "}
+            <span className="font-semibold text-ink">linkedin_visitors_YYYY-MM.csv</span>.
+          </p>
+        </div>
+
+        <div className="card p-6">
+          <h3 className="section-title text-lg">LinkedIn Followers (Optional CSV)</h3>
+          <p className="muted text-sm">
+            {formatDateRange(
+              data.linkedinFollowers.coverage.start,
+              data.linkedinFollowers.coverage.end
+            )} - {data.linkedinFollowers.coverage.days} reporting days
+          </p>
+          <div className="mt-6 grid gap-4 text-sm text-slate">
+            <div className="flex items-center justify-between">
+              <span>Latest Total Followers</span>
+              <span className="font-semibold text-ink">
+                {data.linkedinFollowers.latestTotalFollowers !== null
+                  ? formatNumber(data.linkedinFollowers.latestTotalFollowers)
+                  : "n/a"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Total New Followers</span>
+              <span className="font-semibold text-ink">
+                {formatNumber(data.linkedinFollowers.totalNewFollowers)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Avg New Followers / Day</span>
+              <span className="font-semibold text-ink">
+                {data.linkedinFollowers.averageNewFollowersPerDay !== null
+                  ? formatCompact(data.linkedinFollowers.averageNewFollowersPerDay)
+                  : "n/a"}
+              </span>
+            </div>
+          </div>
+          <p className="muted mt-4 text-xs">
+            Auto-detects files named like{" "}
+            <span className="font-semibold text-ink">linkedin_followers_YYYY-MM.csv</span>.
           </p>
         </div>
       </section>

@@ -18,119 +18,198 @@ const LINKEDIN_CSV_SAMPLE = "linkedin_metrics_sample.csv";
 const LINKEDIN_POSTS_CSV =
   process.env.LINKEDIN_POSTS_CSV_PATH ?? "linkedin_posts.csv";
 const LINKEDIN_POSTS_CSV_SAMPLE = "linkedin_posts_sample.csv";
+const LINKEDIN_VISITORS_CSV =
+  process.env.LINKEDIN_VISITORS_CSV_PATH ?? "linkedin_visitors.csv";
+const LINKEDIN_VISITORS_CSV_SAMPLE = "linkedin_visitors_sample.csv";
+const LINKEDIN_FOLLOWERS_CSV =
+  process.env.LINKEDIN_FOLLOWERS_CSV_PATH ?? "linkedin_followers.csv";
+const LINKEDIN_FOLLOWERS_CSV_SAMPLE = "linkedin_followers_sample.csv";
 
-async function readWithFallback(rawFile, sampleFile) {
-  const rawPath = path.isAbsolute(rawFile)
-    ? rawFile
-    : path.join(DATA_DIR_RAW, rawFile);
-  if (existsSync(rawPath)) {
-    return { text: await fs.readFile(rawPath, "utf-8"), path: rawPath, source: "raw" };
+async function listCsvFiles(dir, include) {
+  const matches = [];
+
+  async function walk(currentDir) {
+    let entries;
+    try {
+      entries = await fs.readdir(currentDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (!entry.name.toLowerCase().endsWith(".csv")) continue;
+      if (!include(entry.name)) continue;
+      matches.push(fullPath);
+    }
   }
 
-  const samplePath = path.join(DATA_DIR_SAMPLE, sampleFile);
-  if (existsSync(samplePath)) {
-    return {
-      text: await fs.readFile(samplePath, "utf-8"),
-      path: samplePath,
-      source: "sample"
-    };
+  await walk(dir);
+  return matches.sort();
+}
+
+function matchesAny(fileName, tokens) {
+  const lower = fileName.toLowerCase();
+  return tokens.some((token) => lower.includes(token));
+}
+
+async function resolveRawFiles(defaultFile, tokens) {
+  if (defaultFile) {
+    const explicitPath = path.isAbsolute(defaultFile)
+      ? defaultFile
+      : path.join(DATA_DIR_RAW, defaultFile);
+    if (existsSync(explicitPath)) {
+      return [explicitPath];
+    }
   }
 
-  return { text: null, path: rawPath, source: "missing" };
+  const matches = await listCsvFiles(DATA_DIR_RAW, (name) =>
+    matchesAny(name, tokens)
+  );
+  return matches;
 }
 
 function parseWithHeaderLabel(csvText, headerLabel) {
-  const rawRows = parseCsv(csvText, {
-    columns: false,
-    skip_empty_lines: true,
-    relax_column_count: true
-  });
-  const headerRowIndex = rawRows.findIndex((row) =>
-    row.some((cell) => String(cell).trim() === headerLabel)
-  );
-  if (headerRowIndex === -1) {
+  try {
+    const rawRows = parseCsv(csvText, {
+      columns: false,
+      skip_empty_lines: true,
+      relax_column_count: true
+    });
+    const target = headerLabel.trim().toLowerCase();
+    const headerRowIndex = rawRows.findIndex((row) =>
+      row.some((cell) => String(cell).trim().toLowerCase() === target)
+    );
+    if (headerRowIndex === -1) {
+      return { headers: [], rows: [] };
+    }
+    const headers = rawRows[headerRowIndex] || [];
+    const rows = rawRows
+      .slice(headerRowIndex + 1)
+      .filter((row) => row.some((cell) => String(cell).trim() !== ""))
+      .map((row) =>
+        headers.reduce((acc, header, index) => {
+          acc[header] = row[index] ?? "";
+          return acc;
+        }, {})
+      );
+    return { headers, rows };
+  } catch {
     return { headers: [], rows: [] };
   }
-  const headers = rawRows[headerRowIndex] || [];
-  const rows = rawRows
-    .slice(headerRowIndex + 1)
-    .filter((row) => row.some((cell) => String(cell).trim() !== ""))
-    .map((row) =>
-      headers.reduce((acc, header, index) => {
-        acc[header] = row[index] ?? "";
-        return acc;
-      }, {})
-    );
-  return { headers, rows };
 }
 
-async function resolveXPostsRawPath() {
-  if (process.env.X_POSTS_CSV_PATH) {
-    const explicit = path.join(DATA_DIR_RAW, process.env.X_POSTS_CSV_PATH);
-    if (existsSync(explicit)) return explicit;
-  }
-  try {
-    const files = await fs.readdir(DATA_DIR_RAW);
-    const match = files
-      .filter(
-        (name) =>
-          name.startsWith("account_analytics_content_") && name.endsWith(".csv")
-      )
-      .sort()
-      .at(-1);
-    if (match) {
-      return path.join(DATA_DIR_RAW, match);
+async function inspectDataset({
+  label,
+  defaultFile,
+  tokens,
+  sampleFile,
+  headerLabel
+}) {
+  const rawFiles = await resolveRawFiles(defaultFile, tokens);
+
+  let source = "missing";
+  let csvTexts = [];
+  let filePaths = [];
+
+  if (rawFiles.length > 0) {
+    source = "raw";
+    filePaths = rawFiles;
+    csvTexts = await Promise.all(rawFiles.map((filePath) => fs.readFile(filePath, "utf-8")));
+  } else {
+    const samplePath = path.join(DATA_DIR_SAMPLE, sampleFile);
+    if (existsSync(samplePath)) {
+      source = "sample";
+      filePaths = [samplePath];
+      csvTexts = [await fs.readFile(samplePath, "utf-8")];
     }
-  } catch (error) {
-    // Fall back to default.
   }
-  const fallback = path.join(DATA_DIR_RAW, X_POSTS_CSV);
-  return existsSync(fallback) ? fallback : null;
-}
 
-async function inspectDataset({ label, rawFile, sampleFile, headerLabel }) {
-  const source = await readWithFallback(rawFile, sampleFile);
-  if (!source.text) {
+  if (csvTexts.length === 0) {
     console.log(`${label}: no CSV found.`);
     return;
   }
-  const { headers, rows } = parseWithHeaderLabel(source.text, headerLabel);
-  console.log(`${label} (${source.source}) columns:`, headers);
+
+  const parsed = csvTexts.map((text) => parseWithHeaderLabel(text, headerLabel));
+  const headers = [...new Set(parsed.flatMap((item) => item.headers))];
+  const rows = parsed.flatMap((item) => item.rows);
+
+  const fileLabel =
+    filePaths.length === 1
+      ? path.relative(process.cwd(), filePaths[0])
+      : `${path.relative(process.cwd(), path.dirname(filePaths[0]))} (${filePaths.length} files)`;
+
+  console.log(`${label} (${source}) file: ${fileLabel}`);
+  console.log(`${label} columns:`, headers);
   console.log(`${label} sample row:`, rows[0]);
 }
 
 await inspectDataset({
   label: "X account analytics",
-  rawFile: X_CSV,
+  defaultFile: X_CSV,
+  tokens: ["x_account_analytics", "x account analytics"],
   sampleFile: X_CSV_SAMPLE,
   headerLabel: "Date"
 });
 
-const xPostsRaw = await resolveXPostsRawPath();
 await inspectDataset({
   label: "X post analytics",
-  rawFile: xPostsRaw ?? X_POSTS_CSV,
+  defaultFile: X_POSTS_CSV,
+  tokens: [
+    "x_post_analytics",
+    "x post analytics",
+    "account_analytics_content_"
+  ],
   sampleFile: X_POSTS_CSV_SAMPLE,
   headerLabel: "Impressions"
 });
 
 await inspectDataset({
   label: "X video overview",
-  rawFile: X_VIDEO_OVERVIEW_CSV,
+  defaultFile: X_VIDEO_OVERVIEW_CSV,
+  tokens: ["x_video_overview", "video_overview", "video overview"],
   sampleFile: X_VIDEO_OVERVIEW_CSV_SAMPLE,
   headerLabel: "Date"
 });
 
 await inspectDataset({
-  label: "LinkedIn metrics",
-  rawFile: LINKEDIN_CSV,
+  label: "LinkedIn metrics/content",
+  defaultFile: LINKEDIN_CSV,
+  tokens: [
+    "linkedin_metrics",
+    "linkedin metrics",
+    "linkedin_content",
+    "metrics-table"
+  ],
   sampleFile: LINKEDIN_CSV_SAMPLE,
   headerLabel: "Date"
 });
 
 await inspectDataset({
   label: "LinkedIn posts",
-  rawFile: LINKEDIN_POSTS_CSV,
+  defaultFile: LINKEDIN_POSTS_CSV,
+  tokens: ["linkedin_posts", "linkedin posts", "all posts"],
   sampleFile: LINKEDIN_POSTS_CSV_SAMPLE,
   headerLabel: "Created date"
+});
+
+await inspectDataset({
+  label: "LinkedIn visitors",
+  defaultFile: LINKEDIN_VISITORS_CSV,
+  tokens: ["linkedin_visitors", "linkedin visitors", "visitors"],
+  sampleFile: LINKEDIN_VISITORS_CSV_SAMPLE,
+  headerLabel: "Date"
+});
+
+await inspectDataset({
+  label: "LinkedIn followers",
+  defaultFile: LINKEDIN_FOLLOWERS_CSV,
+  tokens: ["linkedin_followers", "linkedin followers", "followers"],
+  sampleFile: LINKEDIN_FOLLOWERS_CSV_SAMPLE,
+  headerLabel: "Date"
 });

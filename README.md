@@ -117,12 +117,16 @@ Optional CSV files:
 - `Data/raw/x_post_analytics.csv`
 - `Data/raw/x_video_overview.csv`
 - `Data/raw/linkedin_posts.csv`
+- `Data/raw/linkedin_visitors.csv`
+- `Data/raw/linkedin_followers.csv`
 
 Monthly naming pattern is supported, for example:
 
 - `x_account_analytics_2026-02.csv`
 - `x_post_analytics_2026-02.csv`
-- `linkedin_metrics_2026-02.csv`
+- `linkedin_metrics_2026-02.csv` (or `linkedin_content_2026-02.csv`)
+- `linkedin_visitors_2026-02.csv`
+- `linkedin_followers_2026-02.csv`
 
 The loader merges overlaps and keeps the most complete values per day.
 

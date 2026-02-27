@@ -64,6 +64,8 @@ export type Coverage = {
 export type DashboardData = {
   x: PlatformData;
   linkedin: PlatformData;
+  linkedinVisitors: LinkedInVisitorsData;
+  linkedinFollowers: LinkedInFollowersData;
   combined: PlatformData;
   engagementMix: { label: string; value: number }[];
   mom: Record<string, number | null>;
@@ -94,6 +96,38 @@ export type PlatformData = {
   monthly: MonthSummary[];
   totals: MonthSummary;
   coverage: Coverage;
+};
+
+export type LinkedInVisitorMetric = {
+  date: Date;
+  pageViews: number;
+  uniqueVisitors: number;
+  customButtonClicks: number;
+};
+
+export type LinkedInVisitorsData = {
+  daily: LinkedInVisitorMetric[];
+  coverage: Coverage;
+  totals: {
+    pageViews: number;
+    uniqueVisitors: number;
+    customButtonClicks: number;
+  };
+  latest: LinkedInVisitorMetric | null;
+};
+
+export type LinkedInFollowerMetric = {
+  date: Date;
+  totalFollowers: number | null;
+  newFollowers: number;
+};
+
+export type LinkedInFollowersData = {
+  daily: LinkedInFollowerMetric[];
+  coverage: Coverage;
+  latestTotalFollowers: number | null;
+  totalNewFollowers: number;
+  averageNewFollowersPerDay: number | null;
 };
 
 export type LinkedInPostSummary = {
@@ -235,6 +269,12 @@ const LINKEDIN_CSV_SAMPLE = "linkedin_metrics_sample.csv";
 const LINKEDIN_POSTS_CSV =
   process.env.LINKEDIN_POSTS_CSV_PATH ?? "linkedin_posts.csv";
 const LINKEDIN_POSTS_CSV_SAMPLE = "linkedin_posts_sample.csv";
+const LINKEDIN_VISITORS_CSV =
+  process.env.LINKEDIN_VISITORS_CSV_PATH ?? "linkedin_visitors.csv";
+const LINKEDIN_VISITORS_CSV_SAMPLE = "linkedin_visitors_sample.csv";
+const LINKEDIN_FOLLOWERS_CSV =
+  process.env.LINKEDIN_FOLLOWERS_CSV_PATH ?? "linkedin_followers.csv";
+const LINKEDIN_FOLLOWERS_CSV_SAMPLE = "linkedin_followers_sample.csv";
 
 // LinkedIn export uses MM/DD/YYYY in most locales. Change to "DMY" if needed.
 const LINKEDIN_DATE_FORMAT: "MDY" | "DMY" = "MDY";
@@ -255,9 +295,16 @@ export async function getDashboardData(
     loadXApiSnapshotForMode({ forceRefresh: options.forceRefresh }),
     loadLinkedInApiSnapshotForMode({ forceRefresh: options.forceRefresh })
   ]);
-  const [xDailyResult, linkedInDailyResult] = await Promise.all([
+  const [
+    xDailyResult,
+    linkedInDailyResult,
+    linkedInVisitorsResult,
+    linkedInFollowersResult
+  ] = await Promise.all([
     loadXDailyMetrics(),
-    loadLinkedInDailyMetrics(linkedInPostsData.postsByDate)
+    loadLinkedInDailyMetrics(linkedInPostsData.postsByDate),
+    loadLinkedInVisitorsMetrics(),
+    loadLinkedInFollowersMetrics()
   ]);
 
   const xSelection = selectMetricsForMode(
@@ -321,6 +368,8 @@ export async function getDashboardData(
 
   const xData = buildPlatformData(xMetrics);
   const linkedinData = buildPlatformData(linkedinMetrics);
+  const linkedinVisitors = buildLinkedInVisitorsData(linkedInVisitorsResult.metrics);
+  const linkedinFollowers = buildLinkedInFollowersData(linkedInFollowersResult.metrics);
   const combinedData = buildPlatformData([
     ...xMetrics,
     ...linkedinMetrics
@@ -344,7 +393,9 @@ export async function getDashboardData(
     xDailyResult.videoValidation,
     xPostsData.validation,
     linkedInDailyResult.validation,
-    linkedInPostsData.validation
+    linkedInPostsData.validation,
+    linkedInVisitorsResult.validation,
+    linkedInFollowersResult.validation
   ];
   const usingSampleData = csvValidation.some((item) => {
     if (item.source !== "sample") return false;
@@ -369,6 +420,8 @@ export async function getDashboardData(
   return {
     x: xData,
     linkedin: linkedinData,
+    linkedinVisitors,
+    linkedinFollowers,
     combined: combinedData,
     engagementMix,
     mom,
@@ -948,7 +1001,12 @@ async function resolveLinkedInMetricFiles(): Promise<string[]> {
     return [process.env.LINKEDIN_CSV_PATH];
   }
   const matches = await listCsvFiles(DATA_DIR_RAW, (name) =>
-    matchesAny(name, ["linkedin_metrics", "linkedin metrics"])
+    matchesAny(name, [
+      "linkedin_metrics",
+      "linkedin metrics",
+      "linkedin_content",
+      "metrics-table"
+    ])
   );
   return matches.length > 0 ? matches : [LINKEDIN_CSV];
 }
@@ -961,6 +1019,26 @@ async function resolveLinkedInPostsFiles(): Promise<string[]> {
     matchesAny(name, ["linkedin_posts", "linkedin posts", "all posts"])
   );
   return matches.length > 0 ? matches : [LINKEDIN_POSTS_CSV];
+}
+
+async function resolveLinkedInVisitorsFiles(): Promise<string[]> {
+  if (process.env.LINKEDIN_VISITORS_CSV_PATH) {
+    return [process.env.LINKEDIN_VISITORS_CSV_PATH];
+  }
+  const matches = await listCsvFiles(DATA_DIR_RAW, (name) =>
+    matchesAny(name, ["linkedin_visitors", "linkedin visitors", "visitors"])
+  );
+  return matches.length > 0 ? matches : [LINKEDIN_VISITORS_CSV];
+}
+
+async function resolveLinkedInFollowersFiles(): Promise<string[]> {
+  if (process.env.LINKEDIN_FOLLOWERS_CSV_PATH) {
+    return [process.env.LINKEDIN_FOLLOWERS_CSV_PATH];
+  }
+  const matches = await listCsvFiles(DATA_DIR_RAW, (name) =>
+    matchesAny(name, ["linkedin_followers", "linkedin followers", "followers"])
+  );
+  return matches.length > 0 ? matches : [LINKEDIN_FOLLOWERS_CSV];
 }
 
 type CsvGroupSource = {
@@ -1245,6 +1323,134 @@ async function loadLinkedInDailyMetrics(
   return { metrics: mergeDailyMetrics(metrics), validation };
 }
 
+async function loadLinkedInVisitorsMetrics(): Promise<{
+  metrics: LinkedInVisitorMetric[];
+  validation: CsvValidation;
+}> {
+  const files = await resolveLinkedInVisitorsFiles();
+  const sourceGroup = await readCsvGroupWithFallback(
+    files,
+    LINKEDIN_VISITORS_CSV_SAMPLE
+  );
+  const parsedGroups = sourceGroup.texts.map((text) =>
+    parseLinkedInCsvRows(text, "Date")
+  );
+  const headers = Array.from(
+    new Set(parsedGroups.flatMap((group) => group.headers))
+  );
+  const rows = parsedGroups.flatMap((group) => group.rows);
+
+  const validation = buildCsvValidation({
+    id: "linkedin-visitors",
+    label: "LinkedIn visitors",
+    filePaths: sourceGroup.filePaths,
+    source: sourceGroup.source,
+    rowCount: rows.length,
+    headers,
+    requiredGroups: [
+      { label: "Date", fields: ["Date"] },
+      { label: "Page views", fields: ["Page views", "Page Views"] }
+    ],
+    optionalGroups: [
+      {
+        label: "Unique visitors",
+        fields: ["Unique visitors", "Unique Visitors"]
+      },
+      {
+        label: "Custom button clicks",
+        fields: ["Custom button clicks", "Custom Button clicks", "Button clicks"]
+      }
+    ]
+  });
+
+  const metrics = rows
+    .map((row) => {
+      const date = parseLinkedInDate(pickField(row, ["Date"]));
+      if (!date) return null;
+
+      return {
+        date,
+        pageViews: toNumber(pickField(row, ["Page views", "Page Views"])),
+        uniqueVisitors: toNumber(
+          pickField(row, ["Unique visitors", "Unique Visitors"])
+        ),
+        customButtonClicks: toNumber(
+          pickField(row, [
+            "Custom button clicks",
+            "Custom Button clicks",
+            "Button clicks"
+          ])
+        )
+      };
+    })
+    .filter(Boolean) as LinkedInVisitorMetric[];
+
+  return {
+    metrics: mergeLinkedInVisitorsMetrics(metrics),
+    validation
+  };
+}
+
+async function loadLinkedInFollowersMetrics(): Promise<{
+  metrics: LinkedInFollowerMetric[];
+  validation: CsvValidation;
+}> {
+  const files = await resolveLinkedInFollowersFiles();
+  const sourceGroup = await readCsvGroupWithFallback(
+    files,
+    LINKEDIN_FOLLOWERS_CSV_SAMPLE
+  );
+  const parsedGroups = sourceGroup.texts.map((text) =>
+    parseLinkedInCsvRows(text, "Date")
+  );
+  const headers = Array.from(
+    new Set(parsedGroups.flatMap((group) => group.headers))
+  );
+  const rows = parsedGroups.flatMap((group) => group.rows);
+
+  const validation = buildCsvValidation({
+    id: "linkedin-followers",
+    label: "LinkedIn followers",
+    filePaths: sourceGroup.filePaths,
+    source: sourceGroup.source,
+    rowCount: rows.length,
+    headers,
+    requiredGroups: [{ label: "Date", fields: ["Date"] }],
+    optionalGroups: [
+      {
+        label: "Total followers",
+        fields: ["Total followers", "Followers", "Follower count"]
+      },
+      {
+        label: "New followers",
+        fields: ["New followers", "Followers gained", "Net followers"]
+      }
+    ]
+  });
+
+  const metrics = rows
+    .map((row) => {
+      const date = parseLinkedInDate(pickField(row, ["Date"]));
+      if (!date) return null;
+
+      return {
+        date,
+        totalFollowers: toNullableNumber(
+          pickField(row, ["Total followers", "Followers", "Follower count"])
+        ),
+        newFollowers: toNumber(
+          pickField(row, ["New followers", "Followers gained", "Net followers"])
+        )
+      };
+    })
+    .filter(Boolean) as LinkedInFollowerMetric[];
+
+  return {
+    metrics: mergeLinkedInFollowersMetrics(metrics),
+    validation
+  };
+}
+
 // ----------------------------
 // Aggregation helpers
 // ----------------------------
@@ -1273,6 +1479,66 @@ function mergeDailyMetrics(metrics: DailyMetric[]): DailyMetric[] {
   return Array.from(byDay.values()).sort(
     (a, b) => a.date.getTime() - b.date.getTime()
   );
+}
+
+function mergeLinkedInVisitorsMetrics(
+  metrics: LinkedInVisitorMetric[]
+): LinkedInVisitorMetric[] {
+  const byDay = new Map<string, LinkedInVisitorMetric>();
+
+  metrics.forEach((metric) => {
+    const key = toDayKey(metric.date);
+    const existing = byDay.get(key);
+    if (!existing) {
+      byDay.set(key, metric);
+      return;
+    }
+
+    byDay.set(key, {
+      date: existing.date,
+      pageViews: Math.max(existing.pageViews, metric.pageViews),
+      uniqueVisitors: Math.max(existing.uniqueVisitors, metric.uniqueVisitors),
+      customButtonClicks: Math.max(
+        existing.customButtonClicks,
+        metric.customButtonClicks
+      )
+    });
+  });
+
+  return Array.from(byDay.values()).sort(
+    (a, b) => a.date.getTime() - b.date.getTime()
+  );
+}
+
+function mergeLinkedInFollowersMetrics(
+  metrics: LinkedInFollowerMetric[]
+): LinkedInFollowerMetric[] {
+  const byDay = new Map<string, LinkedInFollowerMetric>();
+
+  metrics.forEach((metric) => {
+    const key = toDayKey(metric.date);
+    const existing = byDay.get(key);
+    if (!existing) {
+      byDay.set(key, metric);
+      return;
+    }
+
+    byDay.set(key, {
+      date: existing.date,
+      totalFollowers: maxNullable(existing.totalFollowers, metric.totalFollowers),
+      newFollowers: Math.max(existing.newFollowers, metric.newFollowers)
+    });
+  });
+
+  return Array.from(byDay.values()).sort(
+    (a, b) => a.date.getTime() - b.date.getTime()
+  );
+}
+
+function maxNullable(a: number | null, b: number | null): number | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return Math.max(a, b);
 }
 
 function mergeTimeMatrixSlots(slots: BestTimeSlot[]): BestTimeSlot[] {
@@ -1304,6 +1570,50 @@ function mergeTimeMatrixSlots(slots: BestTimeSlot[]): BestTimeSlot[] {
       if (b.hour === null) return 1;
       return a.hour - b.hour;
     });
+}
+
+function buildLinkedInVisitorsData(
+  daily: LinkedInVisitorMetric[]
+): LinkedInVisitorsData {
+  const coverage = buildCoverageFromDates(daily.map((metric) => metric.date));
+  const totals = daily.reduce(
+    (acc, metric) => {
+      acc.pageViews += metric.pageViews;
+      acc.uniqueVisitors += metric.uniqueVisitors;
+      acc.customButtonClicks += metric.customButtonClicks;
+      return acc;
+    },
+    { pageViews: 0, uniqueVisitors: 0, customButtonClicks: 0 }
+  );
+
+  return {
+    daily,
+    coverage,
+    totals,
+    latest: daily[daily.length - 1] ?? null
+  };
+}
+
+function buildLinkedInFollowersData(
+  daily: LinkedInFollowerMetric[]
+): LinkedInFollowersData {
+  const coverage = buildCoverageFromDates(daily.map((metric) => metric.date));
+  const totalNewFollowers = daily.reduce(
+    (sum, metric) => sum + metric.newFollowers,
+    0
+  );
+  const latestTotalFollowers =
+    [...daily]
+      .reverse()
+      .find((metric) => metric.totalFollowers !== null)?.totalFollowers ?? null;
+
+  return {
+    daily,
+    coverage,
+    latestTotalFollowers,
+    totalNewFollowers,
+    averageNewFollowersPerDay: daily.length ? totalNewFollowers / daily.length : null
+  };
 }
 
 function rankTopTimeSlots(slots: BestTimeSlot[]): BestTimeSlot[] {
@@ -1437,6 +1747,21 @@ function buildCoverage(daily: DailyMetric[]): Coverage {
     start: sorted[0].date,
     end: sorted[sorted.length - 1].date,
     days: sorted.length
+  };
+}
+
+function buildCoverageFromDates(dates: Date[]): Coverage {
+  if (dates.length === 0) {
+    return { start: null, end: null, days: 0 };
+  }
+
+  const sorted = [...dates].sort((a, b) => a.getTime() - b.getTime());
+  const uniqueDays = new Set(sorted.map((date) => toDayKey(date)));
+
+  return {
+    start: sorted[0],
+    end: sorted[sorted.length - 1],
+    days: uniqueDays.size
   };
 }
 
@@ -2062,6 +2387,18 @@ function toNumber(value: unknown): number {
   const cleaned = String(value).replace(/,/g, "").trim();
   const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toNullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  const cleaned = String(value).replace(/,/g, "").trim();
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function parseRate(value: unknown): number | null {

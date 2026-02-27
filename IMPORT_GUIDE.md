@@ -79,8 +79,10 @@ Suggested naming pattern:
 - `x_account_analytics_2026-02.csv`
 - `x_post_analytics_2026-02.csv`
 - `x_video_overview_2026-02.csv`
-- `linkedin_metrics_2026-02.csv`
+- `linkedin_metrics_2026-02.csv` (or `linkedin_content_2026-02.csv`)
 - `linkedin_posts_2026-02.csv`
+- `linkedin_visitors_2026-02.csv`
+- `linkedin_followers_2026-02.csv`
 
 ## X (Twitter) exports
 
@@ -112,6 +114,7 @@ Suggested naming pattern:
 
 ### 1) Metrics (required)
 - File name: `linkedin_metrics.csv` (or `linkedin_metrics_YYYY-MM.csv`)
+- Also accepted: `linkedin_content.csv` (or `linkedin_content_YYYY-MM.csv`)
 - Required columns:
   - `Date`
   - `Impressions (total)` or `Impressions`
@@ -121,6 +124,23 @@ Suggested naming pattern:
 - Required columns:
   - `Created date`
   - `Impressions`
+
+### 3) Visitors (optional)
+- File name: `linkedin_visitors.csv` (or `linkedin_visitors_YYYY-MM.csv`)
+- Expected columns:
+  - `Date`
+  - `Page views`
+- Optional:
+  - `Unique visitors`
+  - `Custom button clicks`
+
+### 4) Followers (optional)
+- File name: `linkedin_followers.csv` (or `linkedin_followers_YYYY-MM.csv`)
+- Expected columns:
+  - `Date`
+- Optional:
+  - `Total followers`
+  - `New followers`
 
 ## Troubleshooting
 
@@ -138,5 +158,7 @@ X_POSTS_CSV_PATH="my-x-posts.csv" \
 X_VIDEO_OVERVIEW_CSV_PATH="my-x-video.csv" \
 LINKEDIN_CSV_PATH="my-li-export.csv" \
 LINKEDIN_POSTS_CSV_PATH="my-li-posts.csv" \
+LINKEDIN_VISITORS_CSV_PATH="my-li-visitors.csv" \
+LINKEDIN_FOLLOWERS_CSV_PATH="my-li-followers.csv" \
 npm run dev
 ```
