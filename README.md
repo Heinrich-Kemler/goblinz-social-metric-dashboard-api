@@ -120,6 +120,25 @@ Optional CSV files:
 - `Data/raw/linkedin_visitors.csv`
 - `Data/raw/linkedin_followers.csv`
 
+### Naming rules (strict)
+
+- Use lowercase + underscores only.
+- Keep the date suffix as `YYYY-MM` for monthly files.
+- Put monthly drops in `Data/raw/monthly/` (or its subfolders).
+- Use `.csv` text exports only (UTF-8 recommended).
+- Do **not** rename `.xls/.xlsx` files to `.csv` manually; re-export them as real CSV.
+- Keep historic files; the loader merges overlap by day and keeps the most complete value.
+
+Accepted examples:
+
+- `x_account_analytics_2026-02.csv`
+- `x_post_analytics_2026-02.csv`
+- `x_video_overview_2026-02.csv`
+- `linkedin_content_2026-02.csv` or `linkedin_metrics_2026-02.csv`
+- `linkedin_posts_2026-02.csv`
+- `linkedin_visitors_2026-02.csv`
+- `linkedin_followers_2026-02.csv`
+
 Monthly naming pattern is supported, for example:
 
 - `x_account_analytics_2026-02.csv`

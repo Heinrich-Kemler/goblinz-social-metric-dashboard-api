@@ -84,6 +84,25 @@ Suggested naming pattern:
 - `linkedin_visitors_2026-02.csv`
 - `linkedin_followers_2026-02.csv`
 
+## File + folder naming rules (must follow)
+
+- Use lowercase letters, underscores, and `.csv` extension.
+- Monthly files should end with `_YYYY-MM.csv`.
+- Put monthly exports in `Data/raw/monthly/` (nested month folders are also fine).
+- Keep old monthly files in place so long-term history stays intact.
+- Export as **real CSV text** from LinkedIn/X tools.
+  Renaming `.xls`/`.xlsx` to `.csv` will not work.
+
+Quick valid examples:
+
+- `Data/raw/monthly/x_account_analytics_2026-02.csv`
+- `Data/raw/monthly/x_post_analytics_2026-02.csv`
+- `Data/raw/monthly/x_video_overview_2026-02.csv`
+- `Data/raw/monthly/linkedin_content_2026-02.csv`
+- `Data/raw/monthly/linkedin_posts_2026-02.csv`
+- `Data/raw/monthly/linkedin_visitors_2026-02.csv`
+- `Data/raw/monthly/linkedin_followers_2026-02.csv`
+
 ## X (Twitter) exports
 
 ### 1) Account analytics (required)
