@@ -1349,12 +1349,25 @@ async function loadLinkedInVisitorsMetrics(): Promise<{
     headers,
     requiredGroups: [
       { label: "Date", fields: ["Date"] },
-      { label: "Page views", fields: ["Page views", "Page Views"] }
+      {
+        label: "Page views",
+        fields: [
+          "Page views",
+          "Page Views",
+          "Total page views (total)",
+          "Overview page views (total)"
+        ]
+      }
     ],
     optionalGroups: [
       {
         label: "Unique visitors",
-        fields: ["Unique visitors", "Unique Visitors"]
+        fields: [
+          "Unique visitors",
+          "Unique Visitors",
+          "Total unique visitors (total)",
+          "Overview unique visitors (total)"
+        ]
       },
       {
         label: "Custom button clicks",
@@ -1370,9 +1383,21 @@ async function loadLinkedInVisitorsMetrics(): Promise<{
 
       return {
         date,
-        pageViews: toNumber(pickField(row, ["Page views", "Page Views"])),
+        pageViews: toNumber(
+          pickField(row, [
+            "Page views",
+            "Page Views",
+            "Total page views (total)",
+            "Overview page views (total)"
+          ])
+        ),
         uniqueVisitors: toNumber(
-          pickField(row, ["Unique visitors", "Unique Visitors"])
+          pickField(row, [
+            "Unique visitors",
+            "Unique Visitors",
+            "Total unique visitors (total)",
+            "Overview unique visitors (total)"
+          ])
         ),
         customButtonClicks: toNumber(
           pickField(row, [
@@ -1433,14 +1458,20 @@ async function loadLinkedInFollowersMetrics(): Promise<{
       const date = parseLinkedInDate(pickField(row, ["Date"]));
       if (!date) return null;
 
+      const explicitNewFollowers = toNumber(
+        pickField(row, ["New followers", "Followers gained", "Net followers"])
+      );
+      const componentFollowers =
+        toNumber(pickField(row, ["Organic followers"])) +
+        toNumber(pickField(row, ["Sponsored followers"])) +
+        toNumber(pickField(row, ["Auto-invited followers"]));
+
       return {
         date,
         totalFollowers: toNullableNumber(
           pickField(row, ["Total followers", "Followers", "Follower count"])
         ),
-        newFollowers: toNumber(
-          pickField(row, ["New followers", "Followers gained", "Net followers"])
-        )
+        newFollowers: Math.max(explicitNewFollowers, componentFollowers)
       };
     })
     .filter(Boolean) as LinkedInFollowerMetric[];
