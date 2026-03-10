@@ -24,6 +24,10 @@ type XApiTweet = {
 
 type XApiPage = {
   data?: XApiTweet[];
+  errors?: Array<{
+    title?: string;
+    detail?: string;
+  }>;
   meta?: {
     next_token?: string;
   };
@@ -155,12 +159,9 @@ async function fetchRecentTweets(userId: string, bearer: string): Promise<XApiTw
   const lookbackDays = clampNumber(process.env.X_API_LOOKBACK_DAYS, 30, 7, 30);
   const start = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
 
-  const fields = [
-    "created_at",
-    "public_metrics",
-    "organic_metrics",
-    "non_public_metrics"
-  ].join(",");
+  // Keep fields to those broadly available in app-only auth. Requesting
+  // restricted metrics can return 200 responses with only "errors" and no data.
+  const fields = ["created_at", "public_metrics"].join(",");
 
   let nextToken: string | undefined;
   let pageCount = 0;
@@ -182,6 +183,14 @@ async function fetchRecentTweets(userId: string, bearer: string): Promise<XApiTw
       `${API_BASE}/users/${userId}/tweets?${params.toString()}`,
       bearer
     );
+
+    if ((!page.data || page.data.length === 0) && page.errors?.length) {
+      const details = page.errors
+        .map((error) => error.detail ?? error.title)
+        .filter(Boolean)
+        .join(" | ");
+      throw new Error(`X API field access error: ${details.slice(0, 220)}`);
+    }
 
     tweets.push(...(page.data ?? []));
 
