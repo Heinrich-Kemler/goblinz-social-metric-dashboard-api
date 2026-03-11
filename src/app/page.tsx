@@ -15,6 +15,7 @@ type MetricPanelKey =
   | "x_cohort"
   | "x_concentration"
   | "x_quotes"
+  | "x_half_life"
   | "x_followers"
   | "x_brand"
   | "per_post"
@@ -44,6 +45,7 @@ const METRIC_PANELS: { key: MetricPanelKey; label: string }[] = [
   { key: "x_cohort", label: "Engagement Cohort" },
   { key: "x_concentration", label: "Engagement Concentration" },
   { key: "x_quotes", label: "Quote Analytics" },
+  { key: "x_half_life", label: "Post Half-Life" },
   { key: "x_followers", label: "Follower Snapshot" },
   { key: "x_brand", label: "Brand Listening" }
 ];
@@ -86,6 +88,10 @@ export default async function HomePage({
     .filter((value): value is number => value !== null);
   const cohortMedianRate = medianNumber(cohortCellRates);
   const latestMentionsDay = data.xMentions.daily[data.xMentions.daily.length - 1] ?? null;
+  const latestMentionVelocity =
+    data.xMentions.velocity[data.xMentions.velocity.length - 1] ?? null;
+  const mentionVelocityTail = data.xMentions.velocity.slice(-14);
+  const topMentionSpike = data.xMentions.spikes[0] ?? null;
   const latestQuotesDay = data.xQuotes.daily[data.xQuotes.daily.length - 1] ?? null;
   const latestFollowerSnapshot =
     data.xFollowers.snapshots[data.xFollowers.snapshots.length - 1] ?? null;
@@ -274,6 +280,11 @@ export default async function HomePage({
       period: "All time"
     }
   ];
+  const halfLifeBestDay =
+    [...data.xPostHalfLife.byWeekday]
+      .filter((row) => row.medianHalfLifeHours !== null)
+      .sort((a, b) => (a.medianHalfLifeHours ?? 0) - (b.medianHalfLifeHours ?? 0))[0] ??
+    null;
 
   return (
     <main className="px-6 pb-20 pt-10 lg:px-14">
@@ -1258,6 +1269,89 @@ export default async function HomePage({
             {data.xMentions.note}
           </p>
         )}
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-white/80 p-4">
+          <h3 className="text-sm font-semibold text-ink">Mentions Velocity (7-day baseline)</h3>
+          <p className="muted mt-1 text-xs">
+            Detects abnormal mention bursts using rolling 7-day baseline and spike thresholds.
+          </p>
+          <div className="mt-3 grid gap-4 md:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+              <p className="muted text-[11px] uppercase tracking-[0.12em]">Latest Baseline</p>
+              <p className="mt-1 text-lg font-semibold text-ink">
+                {latestMentionVelocity?.rolling7d !== null &&
+                latestMentionVelocity?.rolling7d !== undefined
+                  ? latestMentionVelocity.rolling7d.toFixed(1)
+                  : "n/a"}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+              <p className="muted text-[11px] uppercase tracking-[0.12em]">Spike Days</p>
+              <p className="mt-1 text-lg font-semibold text-ink">
+                {formatNumber(data.xMentions.spikes.length)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+              <p className="muted text-[11px] uppercase tracking-[0.12em]">Largest Spike</p>
+              <p className="mt-1 text-lg font-semibold text-ink">
+                {topMentionSpike ? `${topMentionSpike.spikeRatio.toFixed(1)}x` : "n/a"}
+              </p>
+            </div>
+          </div>
+          {mentionVelocityTail.length > 0 && (
+            <div className="mt-4 space-y-2">
+              {mentionVelocityTail.map((point) => {
+                const maxMentions = Math.max(
+                  ...mentionVelocityTail.map((item) => item.mentions),
+                  1
+                );
+                const width = Math.max(4, Math.round((point.mentions / maxMentions) * 100));
+                return (
+                  <div key={`mentions-velocity-${point.date.toISOString()}`}>
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="text-ink">{formatDateShort(point.date)}</span>
+                      <span className="text-slate">
+                        {formatNumber(point.mentions)} mentions · baseline{" "}
+                        {point.rolling7d !== null ? point.rolling7d.toFixed(1) : "n/a"}
+                      </span>
+                    </div>
+                    <div className="mt-1 h-2 rounded-full bg-slate-100">
+                      <div
+                        className="h-2 rounded-full bg-indigo-500"
+                        style={{ width: `${width}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {data.xMentions.spikes.length > 0 && (
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full min-w-[620px] text-left text-xs">
+                <thead className="uppercase tracking-[0.12em] text-slate">
+                  <tr>
+                    <th className="pb-2 pr-3">Spike Day</th>
+                    <th className="pb-2 pr-3">Mentions</th>
+                    <th className="pb-2 pr-3">7d Baseline</th>
+                    <th className="pb-2 pr-3">Spike Ratio</th>
+                    <th className="pb-2 pr-3">Delta</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {data.xMentions.spikes.slice(0, 6).map((spike) => (
+                    <tr key={`mention-spike-${spike.date.toISOString()}`} className="text-slate">
+                      <td className="py-2 pr-3">{formatDateShort(spike.date)}</td>
+                      <td className="py-2 pr-3">{formatNumber(spike.mentions)}</td>
+                      <td className="py-2 pr-3">{spike.rolling7d.toFixed(1)}</td>
+                      <td className="py-2 pr-3">{spike.spikeRatio.toFixed(2)}x</td>
+                      <td className="py-2 pr-3">+{spike.spikeDelta.toFixed(1)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
         {data.xMentions.topMentioners.length === 0 ? (
           <p className="muted mt-6 text-sm">
             No mention accounts in current API window.
@@ -1380,6 +1474,72 @@ export default async function HomePage({
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-white/80 p-4">
+          <h3 className="text-sm font-semibold text-ink">Supporter Cohort Retention</h3>
+          <p className="muted mt-1 text-xs">
+            Tracks supporters by first-seen week and shows return rates by cohort age.
+          </p>
+          {!data.xAmplifiers.cohortRetention.available ? (
+            <p className="muted mt-3 text-xs">
+              {data.xAmplifiers.cohortRetention.note ??
+                "Need at least two weeks of data to build cohorts."}
+            </p>
+          ) : (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[880px] text-left text-xs">
+                <thead className="uppercase tracking-[0.12em] text-slate">
+                  <tr>
+                    <th className="pb-2 pr-3">Cohort Week</th>
+                    <th className="pb-2 pr-3">Cohort Size</th>
+                    {Array.from(
+                      { length: data.xAmplifiers.cohortRetention.maxWeekOffset + 1 },
+                      (_, offset) => (
+                        <th key={`cohort-offset-head-${offset}`} className="pb-2 pr-3">
+                          W+{offset}
+                        </th>
+                      )
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {data.xAmplifiers.cohortRetention.rows.map((row) => (
+                    <tr key={`supporter-cohort-${row.cohortWeekKey}`} className="text-slate">
+                      <td className="py-2 pr-3 font-semibold text-ink">{row.cohortLabel}</td>
+                      <td className="py-2 pr-3">{formatNumber(row.cohortSize)}</td>
+                      {Array.from(
+                        { length: data.xAmplifiers.cohortRetention.maxWeekOffset + 1 },
+                        (_, offset) => {
+                          const cell = row.cells.find((item) => item.weekOffset === offset);
+                          if (!cell) {
+                            return (
+                              <td key={`cohort-cell-${row.cohortWeekKey}-${offset}`} className="py-2 pr-3">
+                                —
+                              </td>
+                            );
+                          }
+                          const alpha = 0.1 + cell.retentionRate * 0.7;
+                          return (
+                            <td key={`cohort-cell-${row.cohortWeekKey}-${offset}`} className="py-2 pr-3">
+                              <span
+                                className="rounded px-2 py-1 font-semibold"
+                                style={{
+                                  backgroundColor: `rgba(16,185,129,${alpha})`,
+                                  color: cell.retentionRate > 0.55 ? "#052e16" : "#14532d"
+                                }}
+                              >
+                                {formatPercent(cell.retentionRate)}
+                              </span>
+                            </td>
+                          );
+                        }
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -1528,10 +1688,24 @@ export default async function HomePage({
             hint="Likes + reposts on scanned source posts"
           />
           <MetricStatCard
-            label="Concentration Level"
-            value={describeConcentration(data.xAmplifiers.top10Share)}
-            hint="Heuristic from top-10 supporter share"
+            label="Concentration Risk"
+            value={formatRiskLabel(data.xAmplifiers.concentrationRisk)}
+            hint="Based on top-10 share and Gini concentration"
           />
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+            <p className="muted text-[11px] uppercase tracking-[0.12em]">Gini Index</p>
+            <p className="mt-1 text-lg font-semibold text-ink">
+              {data.xAmplifiers.gini !== null ? data.xAmplifiers.gini.toFixed(3) : "n/a"}
+            </p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+            <p className="muted text-[11px] uppercase tracking-[0.12em]">HHI</p>
+            <p className="mt-1 text-lg font-semibold text-ink">
+              {data.xAmplifiers.hhi !== null ? data.xAmplifiers.hhi.toFixed(3) : "n/a"}
+            </p>
+          </div>
         </div>
         {data.xAmplifiers.concentrationCurve.length === 0 ? (
           <p className="muted mt-6 text-sm">
@@ -1594,6 +1768,51 @@ export default async function HomePage({
             {data.xQuotes.note}
           </p>
         )}
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-white/80 p-4">
+          <h3 className="text-sm font-semibold text-ink">Quote Impact Funnel</h3>
+          <p className="muted mt-1 text-xs">
+            Tracks quote volume, downstream engagement quality, and high-intent quote share.
+          </p>
+          <div className="mt-3 grid gap-4 md:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+              <p className="muted text-[11px] uppercase tracking-[0.12em]">Stage 1: Quotes</p>
+              <p className="mt-1 text-lg font-semibold text-ink">
+                {formatCompact(data.xQuotes.funnel.quotes)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+              <p className="muted text-[11px] uppercase tracking-[0.12em]">
+                Stage 2: Quote Engagements
+              </p>
+              <p className="mt-1 text-lg font-semibold text-ink">
+                {formatCompact(data.xQuotes.funnel.quoteEngagements)}
+              </p>
+              <p className="muted text-xs">
+                {data.xQuotes.funnel.engagementPerQuote !== null
+                  ? `${data.xQuotes.funnel.engagementPerQuote.toFixed(2)} per quote`
+                  : "n/a"}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+              <p className="muted text-[11px] uppercase tracking-[0.12em]">
+                Stage 3: High-Intent Quotes
+              </p>
+              <p className="mt-1 text-lg font-semibold text-ink">
+                {formatCompact(data.xQuotes.funnel.highIntentQuotes)}
+              </p>
+              <p className="muted text-xs">
+                {data.xQuotes.funnel.highIntentRate !== null
+                  ? `${formatPercent(data.xQuotes.funnel.highIntentRate)} of quotes (>=${formatNumber(
+                      data.xQuotes.funnel.highIntentThreshold
+                    )} engagements)`
+                  : "n/a"}
+              </p>
+            </div>
+          </div>
+          {data.xQuotes.funnel.note && (
+            <p className="muted mt-3 text-xs">{data.xQuotes.funnel.note}</p>
+          )}
+        </div>
         {data.xQuotes.topQuotedPosts.length === 0 ? (
           <p className="muted mt-6 text-sm">No quote-post rows in current API window.</p>
         ) : (
@@ -1684,6 +1903,124 @@ export default async function HomePage({
               </div>
             </div>
           </>
+        )}
+      </section>
+      )}
+
+      {visiblePanels.has("x_half_life") && (
+      <section className="mt-10 card p-6">
+        <h2 className="section-title text-2xl">Post Half-Life (X API)</h2>
+        <p className="muted mt-2 text-sm">
+          Measures how quickly posts reach 50% of current total engagement, based on snapshot history.
+        </p>
+        <div className="mt-6 grid gap-6 lg:grid-cols-4">
+          <MetricStatCard
+            label="Posts Evaluated"
+            value={formatCompact(data.xPostHalfLife.postsEvaluated)}
+          />
+          <MetricStatCard
+            label="Median Half-Life"
+            value={formatHours(data.xPostHalfLife.medianHalfLifeHours)}
+          />
+          <MetricStatCard
+            label="P75 Half-Life"
+            value={formatHours(data.xPostHalfLife.p75HalfLifeHours)}
+          />
+          <MetricStatCard
+            label="Fastest Weekday"
+            value={halfLifeBestDay ? halfLifeBestDay.day : "n/a"}
+            hint={
+              halfLifeBestDay?.medianHalfLifeHours !== null &&
+              halfLifeBestDay?.medianHalfLifeHours !== undefined
+                ? formatHours(halfLifeBestDay.medianHalfLifeHours)
+                : "Need more snapshots"
+            }
+          />
+        </div>
+        {data.xPostHalfLife.note && (
+          <p className="muted mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+            {data.xPostHalfLife.note}
+          </p>
+        )}
+        {data.xPostHalfLife.available && (
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+              <p className="text-sm font-semibold text-ink">Median Half-Life by Weekday</p>
+              <div className="mt-3 space-y-2">
+                {data.xPostHalfLife.byWeekday.map((row) => {
+                  const width =
+                    row.medianHalfLifeHours !== null
+                      ? Math.max(
+                          2,
+                          Math.round(
+                            (row.medianHalfLifeHours /
+                              Math.max(
+                                ...data.xPostHalfLife.byWeekday.map(
+                                  (item) => item.medianHalfLifeHours ?? 0
+                                ),
+                                1
+                              )) *
+                              100
+                          )
+                        )
+                      : 0;
+                  return (
+                    <div key={`half-life-day-${row.day}`}>
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <span className="font-semibold text-ink">{row.day}</span>
+                        <span className="text-slate">
+                          {formatHours(row.medianHalfLifeHours)} · {formatNumber(row.posts)} posts
+                        </span>
+                      </div>
+                      <div className="mt-1 h-2 rounded-full bg-slate-100">
+                        {row.medianHalfLifeHours !== null && (
+                          <div
+                            className="h-2 rounded-full bg-cyan-500"
+                            style={{ width: `${width}%` }}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+              <p className="text-sm font-semibold text-ink">Sample Posts (Highest Engagement)</p>
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full min-w-[460px] text-left text-xs">
+                  <thead className="uppercase tracking-[0.12em] text-slate">
+                    <tr>
+                      <th className="pb-2 pr-3">Post</th>
+                      <th className="pb-2 pr-3">Half-Life</th>
+                      <th className="pb-2 pr-3">Final Engagements</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {data.xPostHalfLife.samples.slice(0, 10).map((sample) => (
+                      <tr key={`half-life-sample-${sample.tweetId}`} className="text-slate">
+                        <td className="py-2 pr-3">
+                          <a
+                            href={sample.link}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-semibold text-ink hover:underline"
+                          >
+                            {sample.tweetId.slice(0, 10)}...
+                          </a>
+                          <p className="muted mt-1 text-[11px]">
+                            {formatDateShort(sample.createdAt)}
+                          </p>
+                        </td>
+                        <td className="py-2 pr-3">{formatHours(sample.halfLifeHours)}</td>
+                        <td className="py-2 pr-3">{formatNumber(sample.finalEngagements)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         )}
       </section>
       )}
@@ -2394,11 +2731,18 @@ function medianNumber(values: number[]): number | null {
   return sorted[mid];
 }
 
-function describeConcentration(top10Share: number | null): string {
-  if (top10Share === null) return "n/a";
-  if (top10Share >= 0.7) return "High";
-  if (top10Share >= 0.45) return "Medium";
-  return "Low";
+function formatRiskLabel(
+  risk: "low" | "moderate" | "high" | "extreme" | "n/a"
+): string {
+  if (risk === "n/a") return "n/a";
+  return risk.charAt(0).toUpperCase() + risk.slice(1);
+}
+
+function formatHours(hours: number | null): string {
+  if (hours === null || Number.isNaN(hours)) return "n/a";
+  if (hours >= 48) return `${(hours / 24).toFixed(1)}d`;
+  if (hours >= 1) return `${hours.toFixed(1)}h`;
+  return `${Math.round(hours * 60)}m`;
 }
 
 function buildCsvDownloadHref(rows: string[][]): string {

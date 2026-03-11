@@ -68,6 +68,7 @@ export type DashboardData = {
   xQuotes: XQuotesInsight;
   xAmplifiers: XAmplifiersInsight;
   xEngagementCohort: XEngagementCohortInsight;
+  xPostHalfLife: XPostHalfLifeInsight;
   xFollowers: XFollowerInsight;
   xBrandListening: XBrandListeningInsight;
   xRefreshGuardrail: XRefreshGuardrail;
@@ -181,6 +182,21 @@ export type XMentionAccount = {
   lastMentionAt: Date | null;
 };
 
+export type XMentionVelocityPoint = {
+  date: Date;
+  mentions: number;
+  rolling7d: number | null;
+  deltaFromRolling: number | null;
+};
+
+export type XMentionSpike = {
+  date: Date;
+  mentions: number;
+  rolling7d: number;
+  spikeRatio: number;
+  spikeDelta: number;
+};
+
 export type XMentionsInsight = {
   available: boolean;
   note: string | null;
@@ -188,6 +204,8 @@ export type XMentionsInsight = {
   uniqueMentioners: number;
   verifiedMentioners: number;
   daily: XMentionDaily[];
+  velocity: XMentionVelocityPoint[];
+  spikes: XMentionSpike[];
   topMentioners: XMentionAccount[];
 };
 
@@ -224,11 +242,26 @@ export type XQuotesInsight = {
   available: boolean;
   note: string | null;
   totalQuotes: number;
+  totalQuoteEngagements: number;
+  highIntentQuotes: number;
   uniqueQuoteAuthors: number;
   verifiedQuoteAuthors: number;
+  funnel: XQuoteFunnelInsight;
   daily: XQuoteDaily[];
   topQuotedPosts: XQuotedPost[];
   topQuoteAuthors: XQuoteAuthor[];
+};
+
+export type XQuoteFunnelInsight = {
+  quotes: number;
+  quoteEngagements: number;
+  highIntentQuotes: number;
+  engagementPerQuote: number | null;
+  highIntentRate: number | null;
+  highIntentThreshold: number;
+  profileClicks: number | null;
+  profileClickRate: number | null;
+  note: string | null;
 };
 
 export type XAmplifierAccount = {
@@ -269,9 +302,33 @@ export type XAmplifiersInsight = {
   totalInteractions: number;
   top10Share: number | null;
   top20Share: number | null;
+  gini: number | null;
+  hhi: number | null;
+  concentrationRisk: "low" | "moderate" | "high" | "extreme" | "n/a";
   concentrationCurve: XAmplifierConcentrationPoint[];
   retention: XSupporterRetentionPoint[];
+  cohortRetention: XSupporterCohortInsight;
   leaderboard: XAmplifierAccount[];
+};
+
+export type XSupporterCohortCell = {
+  weekOffset: number;
+  supporters: number;
+  retentionRate: number;
+};
+
+export type XSupporterCohortRow = {
+  cohortWeekKey: string;
+  cohortLabel: string;
+  cohortSize: number;
+  cells: XSupporterCohortCell[];
+};
+
+export type XSupporterCohortInsight = {
+  available: boolean;
+  note: string | null;
+  maxWeekOffset: number;
+  rows: XSupporterCohortRow[];
 };
 
 export type XEngagementCohortCell = {
@@ -295,6 +352,30 @@ export type XEngagementCohortInsight = {
   note: string | null;
   ageBuckets: string[];
   rows: XEngagementCohortRow[];
+};
+
+export type XPostHalfLifeSample = {
+  tweetId: string;
+  link: string;
+  createdAt: Date;
+  halfLifeHours: number;
+  finalEngagements: number;
+};
+
+export type XPostHalfLifeWeekday = {
+  day: string;
+  posts: number;
+  medianHalfLifeHours: number | null;
+};
+
+export type XPostHalfLifeInsight = {
+  available: boolean;
+  note: string | null;
+  postsEvaluated: number;
+  medianHalfLifeHours: number | null;
+  p75HalfLifeHours: number | null;
+  samples: XPostHalfLifeSample[];
+  byWeekday: XPostHalfLifeWeekday[];
 };
 
 export type XFollowerSnapshot = {
@@ -615,6 +696,7 @@ export async function getDashboardData(
     xQuotes: xApiSnapshot.quotes,
     xAmplifiers: xApiSnapshot.amplifiers,
     xEngagementCohort: xApiSnapshot.engagementCohort,
+    xPostHalfLife: xApiSnapshot.postHalfLife,
     xFollowers: xApiSnapshot.followers,
     xBrandListening: xApiSnapshot.brandListening,
     xRefreshGuardrail: xApiSnapshot.guardrail,
@@ -687,14 +769,29 @@ async function loadXApiSnapshotForMode(
         uniqueMentioners: 0,
         verifiedMentioners: 0,
         daily: [],
+        velocity: [],
+        spikes: [],
         topMentioners: []
       },
       quotes: {
         available: false,
         note: "X API disabled in CSV mode.",
         totalQuotes: 0,
+        totalQuoteEngagements: 0,
+        highIntentQuotes: 0,
         uniqueQuoteAuthors: 0,
         verifiedQuoteAuthors: 0,
+        funnel: {
+          quotes: 0,
+          quoteEngagements: 0,
+          highIntentQuotes: 0,
+          engagementPerQuote: null,
+          highIntentRate: null,
+          highIntentThreshold: 0,
+          profileClicks: null,
+          profileClickRate: null,
+          note: "Profile click attribution unavailable in CSV mode."
+        },
         daily: [],
         topQuotedPosts: [],
         topQuoteAuthors: []
@@ -711,8 +808,17 @@ async function loadXApiSnapshotForMode(
         totalInteractions: 0,
         top10Share: null,
         top20Share: null,
+        gini: null,
+        hhi: null,
+        concentrationRisk: "n/a",
         concentrationCurve: [],
         retention: [],
+        cohortRetention: {
+          available: false,
+          note: "X API disabled in CSV mode.",
+          maxWeekOffset: 0,
+          rows: []
+        },
         leaderboard: []
       },
       engagementCohort: {
@@ -720,6 +826,15 @@ async function loadXApiSnapshotForMode(
         note: "X API disabled in CSV mode.",
         ageBuckets: [],
         rows: []
+      },
+      postHalfLife: {
+        available: false,
+        note: "X API disabled in CSV mode.",
+        postsEvaluated: 0,
+        medianHalfLifeHours: null,
+        p75HalfLifeHours: null,
+        samples: [],
+        byWeekday: []
       },
       followers: {
         currentFollowers: null,

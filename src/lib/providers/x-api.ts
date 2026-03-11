@@ -15,11 +15,13 @@ import type {
   XMentionAccount,
   XMentionDaily,
   XMentionsInsight,
+  XPostHalfLifeInsight,
   XPostSummary,
   XQuoteAuthor,
   XQuoteDaily,
   XQuotedPost,
   XQuotesInsight,
+  XSupporterCohortInsight,
   XSupporterRetentionPoint,
   XRefreshGuardrail
 } from "@/lib/metrics";
@@ -84,6 +86,11 @@ type XApiUserPage = {
 
 type PersistedXState = {
   followerSnapshots: Array<{ capturedAt: string; followers: number }>;
+  postEngagementSnapshots: Array<{
+    capturedAt: string;
+    signature: string;
+    posts: Array<{ tweetId: string; createdAt: string; engagements: number }>;
+  }>;
   refreshUsage: {
     dayKey: string;
     used: number;
@@ -101,6 +108,7 @@ export type XApiSnapshot = {
   quotes: XQuotesInsight;
   amplifiers: XAmplifiersInsight;
   engagementCohort: XEngagementCohortInsight;
+  postHalfLife: XPostHalfLifeInsight;
   followers: XFollowerInsight;
   brandListening: XBrandListeningInsight;
   guardrail: XRefreshGuardrail;
@@ -156,6 +164,48 @@ const FOLLOWER_SNAPSHOT_MIN_MINUTES = clampNumber(
   30,
   1,
   1440
+);
+const POST_SNAPSHOT_HISTORY_LIMIT = clampNumber(
+  process.env.X_POST_SNAPSHOT_HISTORY_LIMIT,
+  90,
+  10,
+  1000
+);
+const POST_SNAPSHOT_MIN_MINUTES = clampNumber(
+  process.env.X_POST_SNAPSHOT_MIN_MINUTES,
+  30,
+  1,
+  1440
+);
+const POST_SNAPSHOT_POST_LIMIT = clampNumber(
+  process.env.X_POST_SNAPSHOT_POST_LIMIT,
+  250,
+  20,
+  1000
+);
+const HALF_LIFE_MIN_FINAL_ENGAGEMENTS = clampNumber(
+  process.env.X_HALF_LIFE_MIN_FINAL_ENGAGEMENTS,
+  10,
+  1,
+  10_000
+);
+const MENTIONS_SPIKE_RATIO_THRESHOLD = clampDecimal(
+  process.env.X_MENTIONS_SPIKE_RATIO_THRESHOLD,
+  1.8,
+  1.1,
+  10
+);
+const MENTIONS_SPIKE_DELTA_THRESHOLD = clampNumber(
+  process.env.X_MENTIONS_SPIKE_DELTA_THRESHOLD,
+  5,
+  1,
+  500
+);
+const QUOTE_HIGH_INTENT_ENGAGEMENT_THRESHOLD = clampNumber(
+  process.env.X_QUOTE_HIGH_INTENT_ENGAGEMENT_THRESHOLD,
+  5,
+  1,
+  10_000
 );
 const COHORT_AGE_BUCKETS: Array<{ key: string; minHours: number; maxHours: number }> = [
   { key: "0-24h", minHours: 0, maxHours: 24 },
@@ -258,7 +308,9 @@ export async function loadXApiSnapshot(options: LoadOptions = {}): Promise<XApiS
 
     const followerCount = toOptionalNumber(user.data?.public_metrics?.followers_count);
     await maybeStoreFollowerSnapshot(state, followerCount);
+    await maybeStorePostEngagementSnapshot(state, tweets);
     const followerInsight = buildFollowerInsight(state, followerCount);
+    const postHalfLife = buildPostHalfLifeInsight(state, username);
 
     const daily = aggregateDaily(tweets);
     const timeMatrix = buildTimeMatrix(tweets);
@@ -279,6 +331,7 @@ export async function loadXApiSnapshot(options: LoadOptions = {}): Promise<XApiS
       quotes: quotesInsight,
       amplifiers: amplifiersInsight,
       engagementCohort,
+      postHalfLife,
       followers: followerInsight,
       brandListening: brandOutcome,
       guardrail: buildGuardrail(state, null),
@@ -442,6 +495,8 @@ async function loadMentionsInsight(
     const verifiedMentioners = Array.from(byAccount.values()).filter(
       (entry) => Boolean(entry.profile.verified)
     ).length;
+    const velocity = buildMentionsVelocity(daily);
+    const spikes = detectMentionSpikes(velocity);
 
     return {
       available: true,
@@ -450,6 +505,8 @@ async function loadMentionsInsight(
       uniqueMentioners: byAccount.size,
       verifiedMentioners,
       daily,
+      velocity,
+      spikes,
       topMentioners
     };
   } catch (error) {
@@ -503,6 +560,8 @@ async function loadQuoteInsight(
   >();
 
   try {
+    let totalQuoteEngagements = 0;
+    let highIntentQuotes = 0;
     for (const sourceTweet of sourceTweets) {
       const sourceKey = sourceTweet.id;
       const sourceEntry =
@@ -541,6 +600,10 @@ async function loadQuoteInsight(
           (quote.public_metrics?.reply_count ?? 0) +
           (quote.public_metrics?.retweet_count ?? 0) +
           (quote.public_metrics?.quote_count ?? 0);
+        totalQuoteEngagements += engagements;
+        if (engagements >= QUOTE_HIGH_INTENT_ENGAGEMENT_THRESHOLD) {
+          highIntentQuotes += 1;
+        }
 
         sourceEntry.quotes += 1;
         sourceEntry.authorIds.add(authorId);
@@ -624,14 +687,30 @@ async function loadQuoteInsight(
       })
       .slice(0, 15);
 
+    const totalQuotes = daily.reduce((acc, entry) => acc + entry.quotes, 0);
+    const funnel = {
+      quotes: totalQuotes,
+      quoteEngagements: totalQuoteEngagements,
+      highIntentQuotes,
+      engagementPerQuote: totalQuotes > 0 ? totalQuoteEngagements / totalQuotes : null,
+      highIntentRate: totalQuotes > 0 ? highIntentQuotes / totalQuotes : null,
+      highIntentThreshold: QUOTE_HIGH_INTENT_ENGAGEMENT_THRESHOLD,
+      profileClicks: null,
+      profileClickRate: null,
+      note: "Direct profile-click attribution from quote tweets is unavailable in X API v2."
+    };
+
     return {
       available: true,
       note: null,
-      totalQuotes: daily.reduce((acc, entry) => acc + entry.quotes, 0),
+      totalQuotes,
+      totalQuoteEngagements,
+      highIntentQuotes,
       uniqueQuoteAuthors: byAuthor.size,
       verifiedQuoteAuthors: Array.from(byAuthor.values()).filter((entry) =>
         Boolean(entry.profile.verified)
       ).length,
+      funnel,
       daily,
       topQuotedPosts,
       topQuoteAuthors
@@ -771,6 +850,13 @@ async function loadAmplifierInsight(
     ]);
     const top10Share = shareForTopN(sortedCounts, totalInteractions, 10);
     const top20Share = shareForTopN(sortedCounts, totalInteractions, 20);
+    const gini = calculateGini(sortedCounts, totalInteractions);
+    const hhi = calculateHhi(sortedCounts, totalInteractions);
+    const concentrationRisk = classifyConcentrationRisk(top10Share, gini);
+    const cohortRetention = buildSupporterCohortRetention(
+      byWeekSupporters,
+      weekStartByKey
+    );
 
     return {
       available: true,
@@ -784,8 +870,12 @@ async function loadAmplifierInsight(
       totalInteractions,
       top10Share,
       top20Share,
+      gini,
+      hhi,
+      concentrationRisk,
       concentrationCurve,
       retention,
+      cohortRetention,
       leaderboard
     };
   } catch (error) {
@@ -1248,9 +1338,38 @@ function normalizePersistedState(input: Partial<PersistedXState>): PersistedXSta
           typeof entry?.capturedAt === "string" && Number.isFinite(entry?.followers)
       )
     : [];
+  const postSnapshots = Array.isArray(input.postEngagementSnapshots)
+    ? input.postEngagementSnapshots
+        .map((entry) => {
+          if (typeof entry?.capturedAt !== "string") return null;
+          const posts = Array.isArray(entry.posts)
+            ? entry.posts.filter(
+                (post): post is { tweetId: string; createdAt: string; engagements: number } =>
+                  typeof post?.tweetId === "string" &&
+                  typeof post?.createdAt === "string" &&
+                  Number.isFinite(post?.engagements)
+              )
+            : [];
+          return {
+            capturedAt: entry.capturedAt,
+            signature: typeof entry.signature === "string" ? entry.signature : "",
+            posts
+          };
+        })
+        .filter(
+          (
+            entry
+          ): entry is {
+            capturedAt: string;
+            signature: string;
+            posts: Array<{ tweetId: string; createdAt: string; engagements: number }>;
+          } => entry !== null
+        )
+    : [];
 
   return {
     followerSnapshots: snapshots.slice(-FOLLOWER_HISTORY_LIMIT),
+    postEngagementSnapshots: postSnapshots.slice(-POST_SNAPSHOT_HISTORY_LIMIT),
     refreshUsage: {
       dayKey: refreshUsage.dayKey || toUtcDayKey(new Date()),
       used: normalizeNumber(refreshUsage.used),
@@ -1262,6 +1381,7 @@ function normalizePersistedState(input: Partial<PersistedXState>): PersistedXSta
 function createDefaultPersistedState(): PersistedXState {
   return {
     followerSnapshots: [],
+    postEngagementSnapshots: [],
     refreshUsage: {
       dayKey: toUtcDayKey(new Date()),
       used: 0,
@@ -1342,6 +1462,224 @@ async function maybeStoreFollowerSnapshot(
   await savePersistedState(state);
 }
 
+async function maybeStorePostEngagementSnapshot(
+  state: PersistedXState,
+  tweets: XApiTweet[]
+): Promise<void> {
+  if (tweets.length === 0) return;
+  const now = new Date();
+  const rows = tweets
+    .map((tweet) => {
+      const createdAt = parseIsoDate(tweet.created_at);
+      if (!createdAt) return null;
+      const engagements =
+        (tweet.public_metrics?.like_count ?? 0) +
+        (tweet.public_metrics?.reply_count ?? 0) +
+        (tweet.public_metrics?.retweet_count ?? 0) +
+        (tweet.public_metrics?.quote_count ?? 0);
+      return {
+        tweetId: tweet.id,
+        createdAt: createdAt.toISOString(),
+        engagements
+      };
+    })
+    .filter(
+      (
+        row
+      ): row is {
+        tweetId: string;
+        createdAt: string;
+        engagements: number;
+      } => row !== null
+    )
+    .sort((a, b) => {
+      const aTime = parseIsoDate(a.createdAt)?.getTime() ?? 0;
+      const bTime = parseIsoDate(b.createdAt)?.getTime() ?? 0;
+      return bTime - aTime;
+    })
+    .slice(0, POST_SNAPSHOT_POST_LIMIT);
+  if (rows.length === 0) return;
+
+  const signature = rows.map((row) => `${row.tweetId}:${row.engagements}`).join("|");
+  const last =
+    state.postEngagementSnapshots[state.postEngagementSnapshots.length - 1] ?? null;
+  if (last) {
+    const ageMs = now.getTime() - new Date(last.capturedAt).getTime();
+    const minAgeMs = POST_SNAPSHOT_MIN_MINUTES * 60 * 1000;
+    if (ageMs < minAgeMs && last.signature === signature) {
+      return;
+    }
+  }
+
+  state.postEngagementSnapshots.push({
+    capturedAt: now.toISOString(),
+    signature,
+    posts: rows
+  });
+  if (state.postEngagementSnapshots.length > POST_SNAPSHOT_HISTORY_LIMIT) {
+    state.postEngagementSnapshots = state.postEngagementSnapshots.slice(
+      -POST_SNAPSHOT_HISTORY_LIMIT
+    );
+  }
+  await savePersistedState(state);
+}
+
+function buildPostHalfLifeInsight(
+  state: PersistedXState,
+  username: string
+): XPostHalfLifeInsight {
+  const snapshots = state.postEngagementSnapshots
+    .map((snapshot) => {
+      const capturedAt = parseIsoDate(snapshot.capturedAt);
+      if (!capturedAt) return null;
+      return {
+        capturedAt,
+        posts: snapshot.posts
+      };
+    })
+    .filter(
+      (
+        snapshot
+      ): snapshot is {
+        capturedAt: Date;
+        posts: Array<{ tweetId: string; createdAt: string; engagements: number }>;
+      } => snapshot !== null
+    )
+    .sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
+
+  if (snapshots.length < 2) {
+    return {
+      available: false,
+      note: "Need at least two refresh snapshots to compute post half-life.",
+      postsEvaluated: 0,
+      medianHalfLifeHours: null,
+      p75HalfLifeHours: null,
+      samples: [],
+      byWeekday: []
+    };
+  }
+
+  const byTweet = new Map<
+    string,
+    {
+      createdAt: Date;
+      series: Array<{ capturedAt: Date; engagements: number }>;
+    }
+  >();
+
+  for (const snapshot of snapshots) {
+    for (const post of snapshot.posts) {
+      const createdAt = parseIsoDate(post.createdAt);
+      if (!createdAt) continue;
+      const entry =
+        byTweet.get(post.tweetId) ??
+        { createdAt, series: [] as Array<{ capturedAt: Date; engagements: number }> };
+      entry.series.push({
+        capturedAt: snapshot.capturedAt,
+        engagements: Math.max(0, post.engagements)
+      });
+      byTweet.set(post.tweetId, entry);
+    }
+  }
+
+  const samples: Array<{
+    tweetId: string;
+    link: string;
+    createdAt: Date;
+    halfLifeHours: number;
+    finalEngagements: number;
+  }> = [];
+
+  byTweet.forEach((entry, tweetId) => {
+    const series = [...entry.series].sort(
+      (a, b) => a.capturedAt.getTime() - b.capturedAt.getTime()
+    );
+    if (series.length < 2) return;
+    const finalEngagements = Math.max(...series.map((point) => point.engagements));
+    if (finalEngagements < HALF_LIFE_MIN_FINAL_ENGAGEMENTS) return;
+    const target = finalEngagements * 0.5;
+    let crossingTime: Date | null = null;
+
+    for (let index = 0; index < series.length; index += 1) {
+      const point = series[index];
+      if (point.engagements < target) continue;
+      if (index === 0) {
+        crossingTime = point.capturedAt;
+      } else {
+        const previous = series[index - 1];
+        if (previous.engagements >= target) {
+          crossingTime = point.capturedAt;
+        } else {
+          const engagementDelta = point.engagements - previous.engagements;
+          if (engagementDelta <= 0) {
+            crossingTime = point.capturedAt;
+          } else {
+            const ratio = (target - previous.engagements) / engagementDelta;
+            const msDelta = point.capturedAt.getTime() - previous.capturedAt.getTime();
+            crossingTime = new Date(previous.capturedAt.getTime() + msDelta * ratio);
+          }
+        }
+      }
+      break;
+    }
+
+    if (!crossingTime) return;
+    const halfLifeHours =
+      (crossingTime.getTime() - entry.createdAt.getTime()) / (1000 * 60 * 60);
+    if (!Number.isFinite(halfLifeHours) || halfLifeHours < 0) return;
+
+    samples.push({
+      tweetId,
+      link: `https://x.com/${username}/status/${tweetId}`,
+      createdAt: entry.createdAt,
+      halfLifeHours,
+      finalEngagements
+    });
+  });
+
+  if (samples.length === 0) {
+    return {
+      available: false,
+      note:
+        "No posts met half-life thresholds yet. Keep refreshing over time to build post trajectories.",
+      postsEvaluated: 0,
+      medianHalfLifeHours: null,
+      p75HalfLifeHours: null,
+      samples: [],
+      byWeekday: []
+    };
+  }
+
+  const halfLifeValues = samples.map((sample) => sample.halfLifeHours);
+  const medianHalfLifeHours = percentile(halfLifeValues, 0.5);
+  const p75HalfLifeHours = percentile(halfLifeValues, 0.75);
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const byWeekday = dayNames.map((day, index) => {
+    const values = samples
+      .filter((sample) => sample.createdAt.getUTCDay() === index)
+      .map((sample) => sample.halfLifeHours);
+    return {
+      day,
+      posts: values.length,
+      medianHalfLifeHours: percentile(values, 0.5)
+    };
+  });
+
+  const sampleRows = [...samples]
+    .sort((a, b) => b.finalEngagements - a.finalEngagements)
+    .slice(0, 25);
+
+  return {
+    available: true,
+    note: null,
+    postsEvaluated: samples.length,
+    medianHalfLifeHours,
+    p75HalfLifeHours,
+    samples: sampleRows,
+    byWeekday
+  };
+}
+
 function buildFollowerInsight(
   state: PersistedXState,
   currentFollowers: number | null
@@ -1400,6 +1738,7 @@ function emptySnapshot(source: "disabled" | "error" | "paused"): XApiSnapshot {
     quotes: emptyQuotesInsight(),
     amplifiers: emptyAmplifiersInsight(),
     engagementCohort: emptyEngagementCohortInsight(),
+    postHalfLife: emptyPostHalfLifeInsight(),
     followers: emptyFollowerInsight(),
     brandListening: emptyBrandListeningInsight(),
     guardrail: {
@@ -1425,6 +1764,8 @@ function emptyMentionsInsight(): XMentionsInsight {
     uniqueMentioners: 0,
     verifiedMentioners: 0,
     daily: [],
+    velocity: [],
+    spikes: [],
     topMentioners: []
   };
 }
@@ -1434,8 +1775,21 @@ function emptyQuotesInsight(): XQuotesInsight {
     available: false,
     note: null,
     totalQuotes: 0,
+    totalQuoteEngagements: 0,
+    highIntentQuotes: 0,
     uniqueQuoteAuthors: 0,
     verifiedQuoteAuthors: 0,
+    funnel: {
+      quotes: 0,
+      quoteEngagements: 0,
+      highIntentQuotes: 0,
+      engagementPerQuote: null,
+      highIntentRate: null,
+      highIntentThreshold: QUOTE_HIGH_INTENT_ENGAGEMENT_THRESHOLD,
+      profileClicks: null,
+      profileClickRate: null,
+      note: "Direct profile-click attribution from quote tweets is unavailable in X API v2."
+    },
     daily: [],
     topQuotedPosts: [],
     topQuoteAuthors: []
@@ -1455,8 +1809,17 @@ function emptyAmplifiersInsight(): XAmplifiersInsight {
     totalInteractions: 0,
     top10Share: null,
     top20Share: null,
+    gini: null,
+    hhi: null,
+    concentrationRisk: "n/a",
     concentrationCurve: [],
     retention: [],
+    cohortRetention: {
+      available: false,
+      note: null,
+      maxWeekOffset: 0,
+      rows: []
+    },
     leaderboard: []
   };
 }
@@ -1467,6 +1830,18 @@ function emptyEngagementCohortInsight(): XEngagementCohortInsight {
     note: null,
     ageBuckets: COHORT_AGE_BUCKETS.map((bucket) => bucket.key),
     rows: []
+  };
+}
+
+function emptyPostHalfLifeInsight(): XPostHalfLifeInsight {
+  return {
+    available: false,
+    note: null,
+    postsEvaluated: 0,
+    medianHalfLifeHours: null,
+    p75HalfLifeHours: null,
+    samples: [],
+    byWeekday: []
   };
 }
 
@@ -1574,6 +1949,74 @@ function buildSupporterRetentionSeries(
   });
 }
 
+function buildSupporterCohortRetention(
+  byWeekSupporters: Map<string, Set<string>>,
+  weekStartByKey: Map<string, Date>
+): XSupporterCohortInsight {
+  const weekKeys = Array.from(byWeekSupporters.keys()).sort();
+  if (weekKeys.length < 2) {
+    return {
+      available: false,
+      note: "Need at least two weekly buckets to compute cohort retention.",
+      maxWeekOffset: 0,
+      rows: []
+    };
+  }
+
+  const firstSeenWeekIndex = new Map<string, number>();
+  weekKeys.forEach((weekKey, index) => {
+    const supporters = byWeekSupporters.get(weekKey) ?? new Set<string>();
+    supporters.forEach((supporterId) => {
+      if (!firstSeenWeekIndex.has(supporterId)) {
+        firstSeenWeekIndex.set(supporterId, index);
+      }
+    });
+  });
+
+  const cohorts = new Map<number, Set<string>>();
+  firstSeenWeekIndex.forEach((cohortIndex, supporterId) => {
+    const set = cohorts.get(cohortIndex) ?? new Set<string>();
+    set.add(supporterId);
+    cohorts.set(cohortIndex, set);
+  });
+
+  const maxWeekOffset = Math.min(weekKeys.length - 1, 6);
+  const rows = Array.from(cohorts.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([cohortIndex, supporters]) => {
+      const cohortWeekKey = weekKeys[cohortIndex];
+      const weekStart = weekStartByKey.get(cohortWeekKey) ?? parseDayKey(cohortWeekKey);
+      const cohortSize = supporters.size;
+      const maxOffsetForCohort = Math.min(maxWeekOffset, weekKeys.length - cohortIndex - 1);
+      const cells = Array.from({ length: maxOffsetForCohort + 1 }, (_, weekOffset) => {
+        const targetWeekKey = weekKeys[cohortIndex + weekOffset];
+        const targetWeekSupporters = byWeekSupporters.get(targetWeekKey) ?? new Set<string>();
+        const activeSupporters = countIntersection(supporters, targetWeekSupporters);
+        const retentionRate = cohortSize > 0 ? activeSupporters / cohortSize : 0;
+        return {
+          weekOffset,
+          supporters: activeSupporters,
+          retentionRate
+        };
+      });
+      return {
+        cohortWeekKey,
+        cohortLabel: formatWeekLabel(weekStart),
+        cohortSize,
+        cells
+      };
+    })
+    .filter((row) => row.cohortSize > 0)
+    .slice(-10);
+
+  return {
+    available: rows.length > 0,
+    note: rows.length > 0 ? null : "No cohort rows available.",
+    maxWeekOffset,
+    rows
+  };
+}
+
 function buildConcentrationCurve(
   sortedInteractionCounts: number[],
   totalInteractions: number,
@@ -1584,6 +2027,43 @@ function buildConcentrationCurve(
     rank,
     cumulativeShare: shareForTopN(sortedInteractionCounts, totalInteractions, rank) ?? 0
   }));
+}
+
+function calculateGini(
+  sortedInteractionCounts: number[],
+  totalInteractions: number
+): number | null {
+  if (sortedInteractionCounts.length === 0 || totalInteractions <= 0) return null;
+  const ascending = [...sortedInteractionCounts].sort((a, b) => a - b);
+  const n = ascending.length;
+  let weightedSum = 0;
+  for (let index = 0; index < n; index += 1) {
+    weightedSum += (index + 1) * ascending[index];
+  }
+  const gini = (2 * weightedSum) / (n * totalInteractions) - (n + 1) / n;
+  return Math.max(0, Math.min(1, gini));
+}
+
+function calculateHhi(
+  sortedInteractionCounts: number[],
+  totalInteractions: number
+): number | null {
+  if (sortedInteractionCounts.length === 0 || totalInteractions <= 0) return null;
+  return sortedInteractionCounts.reduce((sum, count) => {
+    const share = count / totalInteractions;
+    return sum + share * share;
+  }, 0);
+}
+
+function classifyConcentrationRisk(
+  top10Share: number | null,
+  gini: number | null
+): "low" | "moderate" | "high" | "extreme" | "n/a" {
+  if (top10Share === null && gini === null) return "n/a";
+  if ((top10Share ?? 0) >= 0.75 || (gini ?? 0) >= 0.85) return "extreme";
+  if ((top10Share ?? 0) >= 0.55 || (gini ?? 0) >= 0.7) return "high";
+  if ((top10Share ?? 0) >= 0.35 || (gini ?? 0) >= 0.5) return "moderate";
+  return "low";
 }
 
 function shareForTopN(
@@ -1690,6 +2170,77 @@ function buildEngagementCohort(
   };
 }
 
+function buildMentionsVelocity(
+  daily: XMentionDaily[]
+): Array<{
+  date: Date;
+  mentions: number;
+  rolling7d: number | null;
+  deltaFromRolling: number | null;
+}> {
+  return daily.map((entry, index) => {
+    const window = daily.slice(Math.max(0, index - 6), index + 1);
+    const rolling7d =
+      window.length > 0
+        ? window.reduce((sum, item) => sum + item.mentions, 0) / window.length
+        : null;
+    return {
+      date: entry.date,
+      mentions: entry.mentions,
+      rolling7d,
+      deltaFromRolling: rolling7d !== null ? entry.mentions - rolling7d : null
+    };
+  });
+}
+
+function detectMentionSpikes(
+  velocity: Array<{
+    date: Date;
+    mentions: number;
+    rolling7d: number | null;
+    deltaFromRolling: number | null;
+  }>
+): Array<{
+  date: Date;
+  mentions: number;
+  rolling7d: number;
+  spikeRatio: number;
+  spikeDelta: number;
+}> {
+  return velocity
+    .map((point) => {
+      if (point.rolling7d === null || point.rolling7d <= 0) return null;
+      const spikeRatio = point.mentions / point.rolling7d;
+      const spikeDelta = point.mentions - point.rolling7d;
+      if (
+        spikeRatio < MENTIONS_SPIKE_RATIO_THRESHOLD ||
+        spikeDelta < MENTIONS_SPIKE_DELTA_THRESHOLD
+      ) {
+        return null;
+      }
+      return {
+        date: point.date,
+        mentions: point.mentions,
+        rolling7d: point.rolling7d,
+        spikeRatio,
+        spikeDelta
+      };
+    })
+    .filter(
+      (
+        item
+      ): item is {
+        date: Date;
+        mentions: number;
+        rolling7d: number;
+        spikeRatio: number;
+        spikeDelta: number;
+      } => item !== null
+    )
+    .sort((a, b) => b.spikeRatio - a.spikeRatio)
+    .slice(0, 10);
+}
+
 function getAgeBucket(ageHours: number): string | null {
   const matched = COHORT_AGE_BUCKETS.find(
     (bucket) => ageHours >= bucket.minHours && ageHours < bucket.maxHours
@@ -1705,6 +2256,17 @@ function median(values: number[]): number | null {
     return (sorted[mid - 1] + sorted[mid]) / 2;
   }
   return sorted[mid];
+}
+
+function percentile(values: number[], p: number): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = (sorted.length - 1) * Math.max(0, Math.min(1, p));
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sorted[lower];
+  const weight = index - lower;
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * weight;
 }
 
 function countIntersection(a: Set<string>, b: Set<string>): number {
@@ -1735,6 +2297,17 @@ function clampNumber(
   const parsed = Number(value ?? "");
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, Math.round(parsed)));
+}
+
+function clampDecimal(
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  const parsed = Number(value ?? "");
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
 }
 
 function normalizeNumber(value: unknown): number {

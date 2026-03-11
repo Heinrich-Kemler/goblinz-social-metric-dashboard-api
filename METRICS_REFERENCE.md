@@ -20,10 +20,14 @@ Legend:
 | API freshness chips | No | Yes | Shows last successful API fetch time |
 | X refresh guardrails panel | No | Yes | Shows cooldown, daily cap, in-flight lock status |
 | Mentions intelligence panel | No | Yes | Uses `users/:id/mentions` for daily mentions + top mentioners |
+| Mentions velocity + spike detection | No | Yes | 7-day rolling mention baseline + spike ratio/delta detection |
 | Repeat supporters panel | No | Yes | Uses `retweeted_by` + `liking_users`; includes verified filter + weekly retention estimate |
+| Supporter cohort retention | No | Yes | Cohorts supporters by first-seen week and tracks W+0..W+n retention |
 | Engagement cohort panel | No | Yes | Publish-week cohorts vs post-age buckets (`0-24h`, `1-3d`, `3-7d`, `7-14d`, `14-30d`, `30d+`) |
-| Engagement concentration panel | No | Yes | Top-10/top-20 interaction share + cumulative concentration curve |
+| Engagement concentration panel | No | Yes | Top-10/top-20 share + cumulative curve + Gini/HHI + risk band |
 | Quote analytics panel | No | Yes | Uses `quote_tweets`; shows top quoted posts + quote author trend |
+| Quote impact funnel | No | Yes | Quotes -> quote engagements -> high-intent quote rate |
+| Post half-life panel | No | Yes | Uses stored post snapshots to estimate hours to 50% engagement |
 | Follower snapshot panel | No | Yes | Stores snapshots per refresh and computes deltas |
 | Brand listening panel | No | Yes (optional) | Enabled only when `X_BRAND_QUERY` is configured |
 | CSV export (supporters + follower snapshots) | No | Yes | Download current intelligence tables for offline history |
