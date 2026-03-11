@@ -29,6 +29,7 @@ Legend:
 | Quote analytics panel | No | Yes | Uses `quote_tweets`; shows top quoted posts + quote author trend |
 | Quote impact funnel | No | Yes | Quotes -> quote engagements -> high-intent quote rate |
 | Post half-life panel | No | Yes | Uses stored post snapshots to estimate hours to 50% engagement |
+| X Visual Lab panel | No | Yes | Custom charts for mentions spikes, supporter retention trend, concentration curve, quote funnel, and half-life histogram |
 | Follower snapshot panel | No | Yes | Stores snapshots per refresh and computes deltas |
 | Brand listening panel | No | Yes (optional) | Enabled only when `X_BRAND_QUERY` is configured |
 | CSV export (supporters + follower snapshots) | No | Yes | Download current intelligence tables for offline history |

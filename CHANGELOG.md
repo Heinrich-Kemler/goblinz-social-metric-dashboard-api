@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-03-11
+
+### Added
+- New `X Visual Lab` panel with custom charts:
+  - Mentions velocity with spike markers
+  - Quote impact funnel chart
+  - Supporter retention trend chart
+  - Engagement concentration curve chart
+  - Supporter cohort heatmap
+  - Post half-life histogram
+- New top-window badges in the Day+Hour matrix cards for faster posting-time decisions.
+
+### Changed
+- Refreshed chart styling across overview visuals:
+  - stronger gradients and highlight markers
+  - custom tooltip cards
+  - lollipop ranking charts for LinkedIn content breakdowns
+  - insight overlay cards with sparkline strips
+- Updated `crazy` theme palette and interaction polish for a stronger visual identity.
+
+### Benefits
+- Faster pattern detection for marketers and content teams.
+- Less generic chart look while keeping readability.
+- Better decision support on timing, concentration risk, and funnel quality.
+
 ## [1.2.0] - 2026-03-11
 
 ### Added

@@ -246,6 +246,7 @@ Backups include SHA-256 checksums in `manifest.json`; restore verifies checksums
   - X best day+hour from API tweet timestamps (or CSV post timestamps)
   - Per-post engagement stats (average + median)
   - Day/hour matrix view per platform
+  - X Visual Lab: mentions velocity spikes, supporter retention trend, concentration curve, quote funnel, and half-life histogram
 - Full panel-by-panel breakdown: see `METRICS_REFERENCE.md`.
 
 ## Security notes
@@ -271,8 +272,8 @@ Backups include SHA-256 checksums in `manifest.json`; restore verifies checksums
 
 ## Release notes
 
-- Current stable tag: `v1.2.0`
-- Detailed notes: `docs/releases/v1.2.0.md`
+- Current stable tag: `v1.3.0`
+- Detailed notes: `docs/releases/v1.3.0.md`
 
 ## Current v1 limits
 

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { DashboardCharts } from "@/components/DashboardCharts";
 import { ManualRefreshButton } from "@/components/ManualRefreshButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { XIntelligenceVisuals } from "@/components/XIntelligenceVisuals";
 import { formatCompact, formatNumber, formatPercent } from "@/lib/format";
 import { getDashboardData } from "@/lib/metrics";
 
@@ -16,6 +17,7 @@ type MetricPanelKey =
   | "x_concentration"
   | "x_quotes"
   | "x_half_life"
+  | "x_visuals"
   | "x_followers"
   | "x_brand"
   | "per_post"
@@ -46,6 +48,7 @@ const METRIC_PANELS: { key: MetricPanelKey; label: string }[] = [
   { key: "x_concentration", label: "Engagement Concentration" },
   { key: "x_quotes", label: "Quote Analytics" },
   { key: "x_half_life", label: "Post Half-Life" },
+  { key: "x_visuals", label: "X Visual Lab" },
   { key: "x_followers", label: "Follower Snapshot" },
   { key: "x_brand", label: "Brand Listening" }
 ];
@@ -2029,6 +2032,23 @@ export default async function HomePage({
       </section>
       )}
 
+      {visiblePanels.has("x_visuals") && (
+      <section className="mt-10">
+        <h2 className="section-title text-2xl">X Intelligence Visual Lab</h2>
+        <p className="muted mt-2 text-sm">
+          Custom chart set for mentions velocity, supporter retention, concentration, quote funnel, and post half-life distribution.
+        </p>
+        <div className="mt-6">
+          <XIntelligenceVisuals
+            mentions={data.xMentions}
+            amplifiers={data.xAmplifiers}
+            quotes={data.xQuotes}
+            postHalfLife={data.xPostHalfLife}
+          />
+        </div>
+      </section>
+      )}
+
       {visiblePanels.has("x_followers") && (
       <section className="mt-10 card p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2263,6 +2283,10 @@ function TimeMatrixCard({
 }) {
   const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const hasHourlySlots = showHourly && slots.some((slot) => slot.hour !== null);
+  const rankedWindows = slots
+    .filter((slot) => slot.posts > 0 && slot.engagementRate !== null)
+    .sort((a, b) => (b.engagementRate ?? 0) - (a.engagementRate ?? 0))
+    .slice(0, 3);
 
   if (slots.length === 0) {
     return (
@@ -2279,8 +2303,25 @@ function TimeMatrixCard({
   );
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white/70 p-4">
+    <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
       <p className="text-sm font-semibold text-ink">{title}</p>
+      {rankedWindows.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {rankedWindows.map((slot, index) => (
+            <span
+              key={`${title}-best-window-${slot.day}-${slot.hour ?? "day"}-${index}`}
+              className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-[11px] font-semibold text-indigo-700"
+            >
+              <span className="text-indigo-500">#{index + 1}</span>
+              <span>
+                {slot.day}
+                {slot.hour !== null ? ` ${String(slot.hour).padStart(2, "0")}:00` : ""} ·{" "}
+                {formatPercent(slot.engagementRate ?? 0)}
+              </span>
+            </span>
+          ))}
+        </div>
+      )}
       {hasHourlySlots ? (
         <div className="mt-3 overflow-x-auto">
           <table className="min-w-[840px] text-xs">
@@ -2303,12 +2344,13 @@ function TimeMatrixCard({
                     const rate = slot?.engagementRate ?? null;
                     const intensity =
                       rate !== null && maxRate > 0
-                        ? 0.12 + (rate / maxRate) * 0.68
+                        ? 0.18 + (rate / maxRate) * 0.74
                         : 0;
+                    const isHot = rate !== null && maxRate > 0 && rate / maxRate > 0.82;
                     return (
                       <td key={`${title}-${day}-${hour}`} className="px-1 py-1">
                         <div
-                          className="h-6 w-6 rounded border border-slate-200/70 text-center leading-6"
+                          className="h-6 w-6 rounded border border-slate-200/70 text-center text-[10px] leading-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]"
                           style={{
                             backgroundColor:
                               rate !== null
@@ -2323,7 +2365,7 @@ function TimeMatrixCard({
                               : `${day} ${String(hour).padStart(2, "0")}:00 - no posts`
                           }
                         >
-                          {slot ? "•" : ""}
+                          {slot ? (isHot ? "◆" : "•") : ""}
                         </div>
                       </td>
                     );
@@ -2339,11 +2381,11 @@ function TimeMatrixCard({
             const slot = slotMap.get(`${day}-day`) ?? slotMap.get(`${day}-null`);
             const rate = slot?.engagementRate ?? null;
             const intensity =
-              rate !== null && maxRate > 0 ? 0.18 + (rate / maxRate) * 0.62 : 0.08;
+              rate !== null && maxRate > 0 ? 0.22 + (rate / maxRate) * 0.7 : 0.08;
             return (
               <div
                 key={`${title}-${day}-day`}
-                className="rounded-lg border border-slate-200 px-2 py-3 text-center"
+                className="rounded-lg border border-slate-200 px-2 py-3 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.5)]"
                 style={{
                   backgroundColor:
                     rate !== null
@@ -2361,7 +2403,7 @@ function TimeMatrixCard({
         </div>
       )}
       <p className="muted mt-2 text-[11px]">
-        Dot intensity = relative engagement rate for that platform.
+        Tile intensity = relative engagement rate for that platform. Top windows are badged above.
       </p>
     </div>
   );

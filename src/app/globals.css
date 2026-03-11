@@ -23,6 +23,7 @@
   --chart-2: #17b6a1;
   --chart-3: #f59e0b;
   --chart-4: #8b5cf6;
+  --chart-5: #ef4444;
   --chart-grid: #d6e3f0;
   --card: #ffffff;
   --border: rgba(15, 23, 42, 0.1);
@@ -46,6 +47,7 @@
   --chart-2: #0f8adf;
   --chart-3: #19a773;
   --chart-4: #7c3aed;
+  --chart-5: #e11d48;
   --chart-grid: #d7e3f3;
   --hero-spot-1: rgba(234, 106, 12, 0.22);
   --hero-spot-2: rgba(15, 138, 223, 0.18);
@@ -53,24 +55,25 @@
 }
 
 :root[data-theme="crazy"] {
-  --bg-start: #f7f3ff;
-  --bg-mid: #eef4ff;
-  --bg-end: #f6fff9;
-  --accent: #7c3aed;
+  --bg-start: #f2f4ff;
+  --bg-mid: #eff8ff;
+  --bg-end: #fff7fb;
+  --accent: #4f46e5;
   --accent-2: #06b6d4;
-  --accent-3: #f43f5e;
-  --accent-rgb: 124, 58, 237;
-  --accent-glow: rgba(124, 58, 237, 0.28);
-  --accent-2-glow: rgba(6, 182, 212, 0.22);
-  --accent-shadow: rgba(244, 63, 94, 0.18);
-  --chart-1: #7c3aed;
+  --accent-3: #ef4444;
+  --accent-rgb: 79, 70, 229;
+  --accent-glow: rgba(79, 70, 229, 0.32);
+  --accent-2-glow: rgba(6, 182, 212, 0.24);
+  --accent-shadow: rgba(239, 68, 68, 0.2);
+  --chart-1: #4f46e5;
   --chart-2: #06b6d4;
-  --chart-3: #f43f5e;
-  --chart-4: #22c55e;
-  --chart-grid: #ddd5f8;
-  --hero-spot-1: rgba(124, 58, 237, 0.24);
-  --hero-spot-2: rgba(6, 182, 212, 0.2);
-  --hero-spot-3: rgba(244, 63, 94, 0.16);
+  --chart-3: #ef4444;
+  --chart-4: #10b981;
+  --chart-5: #f59e0b;
+  --chart-grid: #d7dcff;
+  --hero-spot-1: rgba(79, 70, 229, 0.27);
+  --hero-spot-2: rgba(6, 182, 212, 0.22);
+  --hero-spot-3: rgba(239, 68, 68, 0.2);
 }
 
 * {
@@ -117,6 +120,20 @@ body {
     0 18px 45px rgba(15, 23, 42, 0.1),
     0 2px 0 rgba(255, 255, 255, 0.35) inset;
   backdrop-filter: blur(8px);
+}
+
+:root[data-theme="crazy"] .card {
+  box-shadow:
+    0 22px 42px rgba(79, 70, 229, 0.16),
+    0 1px 0 rgba(255, 255, 255, 0.42) inset;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+:root[data-theme="crazy"] .card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 28px 50px rgba(79, 70, 229, 0.2),
+    0 1px 0 rgba(255, 255, 255, 0.5) inset;
 }
 
 .section-title {
