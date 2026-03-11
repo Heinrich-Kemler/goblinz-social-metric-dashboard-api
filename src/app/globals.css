@@ -33,22 +33,22 @@
 
 :root[data-theme="brand"] {
   --bg-start: #fff8f3;
-  --bg-mid: #f9efe6;
-  --bg-end: #f4e6d9;
+  --bg-mid: #f4edf9;
+  --bg-end: #eaf1fb;
   --accent: #ea6a0c;
-  --accent-2: #c17a1a;
+  --accent-2: #0f8adf;
   --accent-3: #19a773;
   --accent-rgb: 234, 106, 12;
   --accent-glow: rgba(234, 106, 12, 0.24);
-  --accent-2-glow: rgba(193, 122, 26, 0.2);
-  --accent-shadow: rgba(51, 26, 10, 0.18);
+  --accent-2-glow: rgba(15, 138, 223, 0.2);
+  --accent-shadow: rgba(15, 23, 42, 0.14);
   --chart-1: #ea6a0c;
-  --chart-2: #c17a1a;
+  --chart-2: #0f8adf;
   --chart-3: #19a773;
-  --chart-4: #2f81f7;
-  --chart-grid: #f0dcca;
+  --chart-4: #7c3aed;
+  --chart-grid: #d7e3f3;
   --hero-spot-1: rgba(234, 106, 12, 0.22);
-  --hero-spot-2: rgba(193, 122, 26, 0.18);
+  --hero-spot-2: rgba(15, 138, 223, 0.18);
   --hero-spot-3: rgba(25, 167, 115, 0.12);
 }
 
