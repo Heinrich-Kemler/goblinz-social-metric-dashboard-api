@@ -218,6 +218,11 @@ Subfolders are supported under `Data/raw` (recursive scan), for example:
 - Users only get updates when they explicitly run:
   - `git pull origin main`
 
+## Release notes
+
+- Current stable tag: `v1.0.0`
+- Detailed notes: `docs/releases/v1.0.0.md`
+
 ## Current v1 limits
 
 - LinkedIn API adapter currently focuses on daily org metrics; post-level top-posts still rely on CSV.
