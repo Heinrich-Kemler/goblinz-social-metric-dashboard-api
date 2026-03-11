@@ -214,10 +214,15 @@ Subfolders are supported under `Data/raw` (recursive scan), for example:
 - X private/non-public metrics availability depends on account access tier and token scope.
 - If API limits are hit, CSV fallback remains available.
 
-## Next versions
+## Next versions (v1.1 roadmap)
 
+- Mentions velocity chart (7-day rolling mentions + spike detection)
+- Supporter retention chart (repeat supporters returning week-over-week)
+- Quote impact funnel (quotes -> quote engagements -> profile clicks)
+- Post half-life (hours to reach 50% of final engagement)
+- Topic/hashtag leaderboard from high-engagement mentions/quotes
+- Creator quality score (engagement quality + consistency + verified boost)
 - Scheduled ingestion job + persistent database
-- Supporter/community scoring pipeline
 
 ## License
 
