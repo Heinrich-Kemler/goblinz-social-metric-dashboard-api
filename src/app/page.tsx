@@ -278,9 +278,15 @@ export default async function HomePage({
   return (
     <main className="px-6 pb-20 pt-10 lg:px-14">
       {/* Hero section explains what the dashboard covers and the current time window. */}
-      <section className="relative overflow-hidden rounded-[28px] border border-white/60 bg-white/70 p-10 shadow-glow">
-        <div className="absolute -right-20 -top-20 h-56 w-56 rounded-full bg-sea/20 blur-3xl" />
-        <div className="absolute -bottom-32 left-10 h-72 w-72 rounded-full bg-moss/25 blur-3xl" />
+      <section className="hero-shell relative overflow-hidden rounded-[30px] p-10">
+        <div
+          className="absolute -right-20 -top-20 h-56 w-56 rounded-full blur-3xl"
+          style={{ background: "var(--hero-spot-1)" }}
+        />
+        <div
+          className="absolute -bottom-32 left-10 h-72 w-72 rounded-full blur-3xl"
+          style={{ background: "var(--hero-spot-2)" }}
+        />
         <div className="relative z-20 mb-4 flex flex-col items-end gap-3 md:absolute md:mb-0 md:right-6 md:top-6">
           <ThemeToggle />
           <ManualRefreshButton />
@@ -290,7 +296,7 @@ export default async function HomePage({
             <p className="muted text-sm uppercase tracking-[0.3em]">
               Open social analytics
             </p>
-            <h1 className="section-title mt-4 text-3xl font-semibold text-ink md:text-5xl">
+            <h1 className="hero-title section-title mt-4 text-3xl font-semibold md:text-5xl">
               Social Metric Dashboard (API + CSV)
             </h1>
             <p className="mt-4 max-w-2xl text-base text-slate">
@@ -298,26 +304,26 @@ export default async function HomePage({
               independently in API or CSV mode, so partial setups still work.
             </p>
             <div className="mt-6 flex flex-wrap gap-4 text-sm text-slate">
-              <div className="glass rounded-full px-4 py-2">
+              <div className="hero-chip rounded-full px-4 py-2">
                 Latest MoM: {data.lastMonthLabel} vs {data.previousMonthLabel}
               </div>
-              <div className="glass rounded-full px-4 py-2">
+              <div className="hero-chip rounded-full px-4 py-2">
                 Data freshness: {dataFreshness}
               </div>
-              <div className="glass rounded-full px-4 py-2">
+              <div className="hero-chip rounded-full px-4 py-2">
                 Data pipeline: CSV-first with optional API enrichment
               </div>
-              <div className="glass rounded-full px-4 py-2">
+              <div className="hero-chip rounded-full px-4 py-2">
                 API freshness: X {xApiFreshness}, LinkedIn {linkedInApiFreshness}
               </div>
-              <div className="glass rounded-full px-4 py-2">
+              <div className="hero-chip rounded-full px-4 py-2">
                 X refresh budget: {data.xRefreshGuardrail.refreshesUsedToday}/
                 {data.xRefreshGuardrail.dailyCap}
               </div>
               {data.sourceStates.map((state) => (
                 <div
                   key={`${state.platform}-${state.mode}`}
-                  className="glass rounded-full px-4 py-2"
+                  className="hero-chip rounded-full px-4 py-2"
                 >
                   {state.platform.toUpperCase()}: {state.detail}
                 </div>
@@ -2162,7 +2168,7 @@ function MetricStatCard({
   hint?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+    <div className="metric-card rounded-2xl p-4">
       <p className="muted text-xs">{label}</p>
       <p className="mt-2 text-2xl font-semibold text-ink">{value}</p>
       {hint && <p className="muted mt-1 text-xs">{hint}</p>}

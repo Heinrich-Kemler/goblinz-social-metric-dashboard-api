@@ -7,40 +7,70 @@
   These make it easy to tweak the dashboard look without hunting through components.
 */
 :root {
-  --bg-start: #f5f7fb;
-  --bg-mid: #edf2f8;
-  --bg-end: #e3ecf6;
+  --bg-start: #f8fbff;
+  --bg-mid: #edf4fb;
+  --bg-end: #e5eef7;
   --text-primary: #0b1020;
   --text-muted: #526070;
-  --accent: #0ea5e9;
-  --accent-2: #14b8a6;
-  --accent-3: #f97316;
-  --accent-rgb: 14, 165, 233;
-  --accent-glow: rgba(14, 165, 233, 0.2);
-  --accent-2-glow: rgba(20, 184, 166, 0.18);
-  --accent-shadow: rgba(2, 6, 23, 0.12);
-  --chart-1: #0ea5e9;
-  --chart-2: #14b8a6;
-  --chart-3: #f97316;
-  --chart-4: #fbbf24;
-  --chart-grid: #d7e2ee;
+  --accent: #0f8adf;
+  --accent-2: #17b6a1;
+  --accent-3: #f59e0b;
+  --accent-rgb: 15, 138, 223;
+  --accent-glow: rgba(15, 138, 223, 0.24);
+  --accent-2-glow: rgba(23, 182, 161, 0.2);
+  --accent-shadow: rgba(2, 6, 23, 0.14);
+  --chart-1: #0f8adf;
+  --chart-2: #17b6a1;
+  --chart-3: #f59e0b;
+  --chart-4: #8b5cf6;
+  --chart-grid: #d6e3f0;
   --card: #ffffff;
-  --border: rgba(15, 23, 42, 0.08);
+  --border: rgba(15, 23, 42, 0.1);
+  --hero-spot-1: rgba(15, 138, 223, 0.2);
+  --hero-spot-2: rgba(23, 182, 161, 0.16);
+  --hero-spot-3: rgba(139, 92, 246, 0.13);
 }
 
 :root[data-theme="brand"] {
-  --accent: #f97316;
-  --accent-2: #f59e0b;
-  --accent-3: #22c55e;
-  --accent-rgb: 249, 115, 22;
-  --accent-glow: rgba(249, 115, 22, 0.22);
-  --accent-2-glow: rgba(245, 158, 11, 0.18);
-  --accent-shadow: rgba(15, 23, 42, 0.14);
-  --chart-1: #f97316;
-  --chart-2: #f59e0b;
-  --chart-3: #22c55e;
-  --chart-4: #0ea5e9;
-  --chart-grid: #f1d9c7;
+  --bg-start: #fff8f3;
+  --bg-mid: #f9efe6;
+  --bg-end: #f4e6d9;
+  --accent: #ea6a0c;
+  --accent-2: #c17a1a;
+  --accent-3: #19a773;
+  --accent-rgb: 234, 106, 12;
+  --accent-glow: rgba(234, 106, 12, 0.24);
+  --accent-2-glow: rgba(193, 122, 26, 0.2);
+  --accent-shadow: rgba(51, 26, 10, 0.18);
+  --chart-1: #ea6a0c;
+  --chart-2: #c17a1a;
+  --chart-3: #19a773;
+  --chart-4: #2f81f7;
+  --chart-grid: #f0dcca;
+  --hero-spot-1: rgba(234, 106, 12, 0.22);
+  --hero-spot-2: rgba(193, 122, 26, 0.18);
+  --hero-spot-3: rgba(25, 167, 115, 0.12);
+}
+
+:root[data-theme="crazy"] {
+  --bg-start: #f7f3ff;
+  --bg-mid: #eef4ff;
+  --bg-end: #f6fff9;
+  --accent: #7c3aed;
+  --accent-2: #06b6d4;
+  --accent-3: #f43f5e;
+  --accent-rgb: 124, 58, 237;
+  --accent-glow: rgba(124, 58, 237, 0.28);
+  --accent-2-glow: rgba(6, 182, 212, 0.22);
+  --accent-shadow: rgba(244, 63, 94, 0.18);
+  --chart-1: #7c3aed;
+  --chart-2: #06b6d4;
+  --chart-3: #f43f5e;
+  --chart-4: #22c55e;
+  --chart-grid: #ddd5f8;
+  --hero-spot-1: rgba(124, 58, 237, 0.24);
+  --hero-spot-2: rgba(6, 182, 212, 0.2);
+  --hero-spot-3: rgba(244, 63, 94, 0.16);
 }
 
 * {
@@ -55,30 +85,43 @@ body {
 body {
   color: var(--text-primary);
   background-color: var(--bg-mid);
-  /* Layered gradients + grid keep the backdrop clean while feeling more techy. */
+  /* Layered backdrop keeps a premium but readable tech aesthetic. */
   background-image:
-    radial-gradient(circle at 8% 12%, var(--accent-glow), transparent 40%),
-    radial-gradient(circle at 92% 18%, var(--accent-2-glow), transparent 45%),
-    radial-gradient(circle at 50% 100%, var(--accent-shadow), transparent 55%),
-    linear-gradient(to right, rgba(15, 23, 42, 0.035) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(15, 23, 42, 0.035) 1px, transparent 1px);
-  background-size: auto, auto, auto, 54px 54px, 54px 54px;
+    linear-gradient(155deg, var(--bg-start) 0%, var(--bg-mid) 52%, var(--bg-end) 100%),
+    radial-gradient(circle at 10% 12%, var(--accent-glow), transparent 43%),
+    radial-gradient(circle at 92% 16%, var(--accent-2-glow), transparent 46%),
+    radial-gradient(circle at 52% 100%, var(--accent-shadow), transparent 56%),
+    linear-gradient(to right, rgba(15, 23, 42, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 23, 42, 0.03) 1px, transparent 1px);
+  background-size: auto, auto, auto, auto, 52px 52px, 52px 52px;
   background-attachment: fixed;
   font-family: var(--font-text), "Manrope", sans-serif;
   line-height: 1.6;
+  position: relative;
 }
 
 /* Utility classes used across the dashboard. */
 .card {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.92));
-  border: 1px solid var(--border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(249, 252, 255, 0.86)) padding-box,
+    linear-gradient(
+        120deg,
+        rgba(255, 255, 255, 0.72),
+        rgba(var(--accent-rgb), 0.2),
+        rgba(255, 255, 255, 0.62)
+      )
+      border-box;
+  border: 1px solid transparent;
   border-radius: 20px;
-  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.1);
+  box-shadow:
+    0 18px 45px rgba(15, 23, 42, 0.1),
+    0 2px 0 rgba(255, 255, 255, 0.35) inset;
+  backdrop-filter: blur(8px);
 }
 
 .section-title {
   font-family: var(--font-display), "Space Grotesk", sans-serif;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
 }
 
 .muted {
@@ -86,9 +129,53 @@ body {
 }
 
 .glass {
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(15, 23, 42, 0.06);
-  backdrop-filter: blur(18px);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.55)) padding-box,
+    linear-gradient(140deg, rgba(255, 255, 255, 0.68), rgba(var(--accent-rgb), 0.18))
+      border-box;
+  border: 1px solid transparent;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(16px);
+}
+
+.hero-shell {
+  background:
+    radial-gradient(circle at 10% 8%, var(--hero-spot-1), transparent 38%),
+    radial-gradient(circle at 92% 18%, var(--hero-spot-2), transparent 42%),
+    radial-gradient(circle at 54% 105%, var(--hero-spot-3), transparent 52%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(245, 249, 255, 0.68));
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow:
+    0 30px 64px rgba(15, 23, 42, 0.13),
+    0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  backdrop-filter: blur(14px);
+}
+
+.hero-chip {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.64), rgba(255, 255, 255, 0.46)) padding-box,
+    linear-gradient(140deg, rgba(255, 255, 255, 0.64), rgba(var(--accent-rgb), 0.24))
+      border-box;
+  border: 1px solid transparent;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.hero-title {
+  background: linear-gradient(135deg, #081226 0%, var(--accent) 55%, var(--accent-2) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.metric-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.68)) padding-box,
+    linear-gradient(160deg, rgba(var(--accent-rgb), 0.22), rgba(255, 255, 255, 0.55))
+      border-box;
+  border: 1px solid transparent;
+  box-shadow:
+    0 10px 25px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.38);
 }
 
 @keyframes float {
@@ -105,4 +192,13 @@ body {
 
 .floating {
   animation: float 6s ease-in-out infinite;
+}
+
+@media (max-width: 768px) {
+  .hero-title {
+    background: linear-gradient(135deg, #081226 0%, var(--accent) 75%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
 }

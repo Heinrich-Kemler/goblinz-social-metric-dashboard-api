@@ -4,14 +4,21 @@ import { useEffect, useState } from "react";
 
 const STORAGE_KEY = "goblinz-theme";
 
-type Theme = "neutral" | "brand";
+type Theme = "neutral" | "brand" | "crazy";
+
+const THEMES: Array<{ key: Theme; label: string }> = [
+  { key: "neutral", label: "Neutral" },
+  { key: "brand", label: "Accent" },
+  { key: "crazy", label: "Crazy" }
+];
 
 export function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>("neutral");
 
   useEffect(() => {
     const stored = window.localStorage.getItem(STORAGE_KEY);
-    const nextTheme: Theme = stored === "brand" ? "brand" : "neutral";
+    const nextTheme: Theme =
+      stored === "brand" || stored === "crazy" ? stored : "neutral";
     setTheme(nextTheme);
     document.documentElement.dataset.theme = nextTheme;
   }, []);
@@ -23,34 +30,25 @@ export function ThemeToggle() {
   };
 
   return (
-    <div className="flex items-center gap-2 rounded-full border border-white/60 bg-white/70 px-3 py-2 text-xs text-slate shadow-sm">
-      <span className="muted hidden text-[0.6rem] uppercase tracking-[0.3em] sm:inline">
+    <div className="flex items-center gap-2 rounded-full border border-white/70 bg-white/75 px-3 py-2 text-xs text-slate shadow-[0_10px_30px_rgba(15,23,42,0.14)] backdrop-blur">
+      <span className="muted hidden text-[0.58rem] uppercase tracking-[0.28em] sm:inline">
         Theme
       </span>
-      <button
-        type="button"
-        onClick={() => applyTheme("neutral")}
-        aria-pressed={theme === "neutral"}
-        className={
-          theme === "neutral"
-            ? "rounded-full bg-ink px-3 py-1 text-white"
-            : "rounded-full px-3 py-1 text-slate hover:bg-slate-100"
-        }
-      >
-        Neutral
-      </button>
-      <button
-        type="button"
-        onClick={() => applyTheme("brand")}
-        aria-pressed={theme === "brand"}
-        className={
-          theme === "brand"
-            ? "rounded-full bg-ink px-3 py-1 text-white"
-            : "rounded-full px-3 py-1 text-slate hover:bg-slate-100"
-        }
-      >
-        Accent
-      </button>
+      {THEMES.map((item) => (
+        <button
+          key={item.key}
+          type="button"
+          onClick={() => applyTheme(item.key)}
+          aria-pressed={theme === item.key}
+          className={
+            theme === item.key
+              ? "rounded-full bg-[linear-gradient(135deg,var(--accent),var(--accent-2))] px-3 py-1 font-semibold text-white shadow-[0_8px_18px_var(--accent-glow)]"
+              : "rounded-full px-3 py-1 text-slate transition hover:bg-slate-100"
+          }
+        >
+          {item.label}
+        </button>
+      ))}
     </div>
   );
 }
