@@ -18,3 +18,7 @@ Data/raw/*
 !Data/raw/monthly/.gitkeep
 Data/cache/*
 !Data/cache/.gitkeep
+Data/state/*
+!Data/state/.gitkeep
+Data/backups/*
+!Data/backups/.gitkeep

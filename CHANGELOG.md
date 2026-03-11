@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-03-11
+
+### Added
+- Local SQLite state store at `Data/state/metrics.db` for durable API snapshot history.
+- Append-only X API snapshot persistence (each refresh adds a snapshot row).
+- State backup command: `npm run state:backup`.
+- State restore command: `npm run state:restore -- --from <backup-folder> [--force]`.
+- Backup checksum manifest validation during restore.
+
+### Changed
+- X API loader now hydrates from persisted SQLite snapshots on restart when available.
+- X API error/disabled states now fall back to the most recent persisted snapshot when possible.
+- Security hardening for state persistence paths and gitignore coverage.
+
+### Benefits
+- Historical API intelligence survives app restarts and reinstall flows.
+- Lower risk of losing hard-earned API history between versions.
+- Safer migration path with verifiable local backups.
+
 ## [1.1.0] - 2026-03-11
 
 ### Added

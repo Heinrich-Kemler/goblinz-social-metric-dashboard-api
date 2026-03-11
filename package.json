@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "inspect:data": "node scripts/inspect-data.mjs"
+    "inspect:data": "node scripts/inspect-data.mjs",
+    "state:backup": "node scripts/state-backup.mjs",
+    "state:restore": "node scripts/state-restore.mjs"
   },
   "dependencies": {
     "csv-parse": "^5.6.0",

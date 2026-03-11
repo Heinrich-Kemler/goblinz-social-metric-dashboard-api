@@ -65,6 +65,14 @@ cp .env.example .env.local
 - `API_REFRESH_MODE=auto`: API can refresh during normal page loads (subject to cache TTL).
 - `Reload CSV` refreshes the dashboard without triggering API calls.
 
+## Local persistence (SQLite)
+
+- The dashboard persists X API snapshots locally in:
+  - `Data/state/metrics.db`
+- Snapshots are append-only (new refreshes add rows; previous snapshots are kept).
+- On restart/reinstall, the app can hydrate from persisted snapshots so API panels and history do not reset to empty.
+- In `auto` mode, CSV baseline + persisted/API snapshot data are merged in the dashboard flow.
+
 ## X API setup (v1)
 
 Required for X API mode:
@@ -194,9 +202,37 @@ Subfolders are supported under `Data/raw` (recursive scan), for example:
   - Cooldown between refreshes (`X_API_REFRESH_COOLDOWN_SECONDS`)
   - Daily cap (`X_API_DAILY_REFRESH_CAP`)
   - In-flight lock (prevents overlapping refresh runs)
+- Override refresh bypasses cooldown + daily cap, but still respects in-flight lock.
 - **Reload CSV** refreshes local CSV-derived metrics without API calls.
 - For lowest cost, set `X_DATA_MODE=csv` and/or `LINKEDIN_DATA_MODE=csv`.
 - Practical strategy: keep monthly CSV exports as your long-term archive, then use `auto` only when you need recent API enrichment.
+
+## Backup and restore (state migration)
+
+Create backup:
+
+```bash
+npm run state:backup
+```
+
+Restore backup:
+
+```bash
+npm run state:restore -- --from Data/backups/metrics-state-YYYYMMDD-HHMMSS
+```
+
+Force overwrite existing local state during restore:
+
+```bash
+npm run state:restore -- --from Data/backups/metrics-state-YYYYMMDD-HHMMSS --force
+```
+
+What is backed up:
+- `Data/state/metrics.db`
+- `Data/state/metrics.db-wal` and `Data/state/metrics.db-shm` (if present)
+- `Data/cache/x_api_state.json`
+
+Backups include SHA-256 checksums in `manifest.json`; restore verifies checksums before writing files.
 
 ## Metrics source map
 
@@ -219,6 +255,8 @@ Subfolders are supported under `Data/raw` (recursive scan), for example:
 - API calls happen server-side only.
 - `.env*` must stay gitignored.
 - X refresh usage + follower snapshots are stored locally in `Data/cache/x_api_state.json` (no API keys stored there).
+- SQLite persistence lives in `Data/state/metrics.db` and is gitignored.
+- State files are created with restrictive local permissions where supported (`0600`).
 - You are responsible for API credential handling and any usage costs charged by providers.
 
 ## Versioning and updates
@@ -233,8 +271,8 @@ Subfolders are supported under `Data/raw` (recursive scan), for example:
 
 ## Release notes
 
-- Current stable tag: `v1.1.0`
-- Detailed notes: `docs/releases/v1.1.0.md`
+- Current stable tag: `v1.2.0`
+- Detailed notes: `docs/releases/v1.2.0.md`
 
 ## Current v1 limits
 

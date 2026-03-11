@@ -18,6 +18,7 @@ Legend:
 | Best day+hour matrix | Yes (if timestamps exist) | Yes for X, partial for LinkedIn | Heatmap by weekday and UTC hour |
 | Video watch time (X) | Yes (`x_video_overview`) | No | API adapter v1 does not include watch-time endpoints |
 | API freshness chips | No | Yes | Shows last successful API fetch time |
+| Persistent API history (SQLite) | No | Yes | X API snapshots are stored locally in `Data/state/metrics.db` and reused after restart |
 | X refresh guardrails panel | No | Yes | Shows cooldown, daily cap, in-flight lock status |
 | Mentions intelligence panel | No | Yes | Uses `users/:id/mentions` for daily mentions + top mentioners |
 | Mentions velocity + spike detection | No | Yes | 7-day rolling mention baseline + spike ratio/delta detection |
@@ -40,3 +41,4 @@ Legend:
 - Use `Reload CSV` for local-only refreshes
 - Use `Manual API Refresh` only when you explicitly want fresh API data
 - Use `Override Refresh` only when the warning confirms it's worth extra credit spend
+- Run `npm run state:backup` before major updates; restore with `npm run state:restore -- --from <backup-dir>`

@@ -9,7 +9,7 @@ I am non-technical.
 Help me run this repository locally and configure CSV + optional API mode safely.
 
 Project name:
-- `goblinz-social-metric-dashboard-api`
+- `goblinz-social-metric-dashboard-privateapi`
 
 Project folder on my machine:
 - `[PASTE FULL PATH HERE]`
@@ -82,10 +82,11 @@ Rules you must follow:
   - `X_API_BEARER_TOKEN=...`
   - `X_API_USERNAME=...`
 - Add cost guardrails (if missing):
-  - `X_API_REFRESH_COOLDOWN_SECONDS=120`
-  - `X_API_DAILY_REFRESH_CAP=15`
+  - `X_API_REFRESH_COOLDOWN_SECONDS=10800`
+  - `X_API_DAILY_REFRESH_CAP=2`
 - Explain:
   - `Manual API Refresh` consumes credits.
+  - `Override Refresh` bypasses cap/cooldown and should be used rarely.
   - `Reload CSV` does not consume credits.
 
 ### Phase 5: optional brand listening setup
@@ -117,6 +118,16 @@ Rules you must follow:
   - `git status --short`
 - Ensure no secrets are staged.
 - If any secret is staged, stop and remove it before commit.
+
+### Phase 8: persistence + migration safety
+- Explain that API history is saved locally in SQLite:
+  - `Data/state/metrics.db`
+- Run backup before upgrades:
+  - `npm run state:backup`
+- If reinstalling/migrating, restore from backup:
+  - `npm run state:restore -- --from Data/backups/metrics-state-YYYYMMDD-HHMMSS`
+- If target files already exist and should be replaced, use:
+  - `npm run state:restore -- --from Data/backups/metrics-state-YYYYMMDD-HHMMSS --force`
 
 ## Troubleshooting playbook
 

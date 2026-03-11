@@ -48,6 +48,12 @@ Refresh behavior:
   - cooldown between refreshes
   - daily refresh cap
   - in-flight lock
+  - manual override button (shows extra credit-spend warning)
+
+Default guardrails in v1.2:
+
+- `X_API_REFRESH_COOLDOWN_SECONDS=10800` (3h)
+- `X_API_DAILY_REFRESH_CAP=2`
 
 ## Folder structure
 
@@ -195,6 +201,27 @@ Data export buttons:
 - Repeat supporters table has CSV download.
 - Follower snapshot history has CSV download.
 - Use these for long-term records and to reduce unnecessary API refreshes.
+
+## Persistent local state (recommended)
+
+The app stores durable API history in:
+
+- `Data/state/metrics.db` (SQLite, append-only snapshots)
+- `Data/cache/x_api_state.json` (refresh counters + follower snapshot helper cache)
+
+These files are gitignored and local to your machine.
+
+Backup before upgrades:
+
+```bash
+npm run state:backup
+```
+
+Restore after reinstall/migration:
+
+```bash
+npm run state:restore -- --from Data/backups/metrics-state-YYYYMMDD-HHMMSS
+```
 
 ## File name overrides (optional)
 

@@ -25,6 +25,10 @@ import type {
   XSupporterRetentionPoint,
   XRefreshGuardrail
 } from "@/lib/metrics";
+import {
+  appendXApiSnapshotToStore,
+  loadLatestXApiSnapshotFromStore
+} from "@/lib/storage/metrics-db";
 
 type XApiUser = {
   id: string;
@@ -226,6 +230,15 @@ export async function loadXApiSnapshot(options: LoadOptions = {}): Promise<XApiS
   const state = await loadPersistedState();
   rotateRefreshUsageDay(state);
   const baseGuardrail = buildGuardrail(state, null);
+  if (!snapshotCache) {
+    const persistedSnapshot = loadLatestXApiSnapshotFromStore();
+    if (persistedSnapshot) {
+      snapshotCache = {
+        expiresAt: Date.now() + CACHE_SECONDS * 1000,
+        value: persistedSnapshot
+      };
+    }
+  }
 
   if (!options.forceRefresh && snapshotCache) {
     if (options.manualOnly) {
@@ -249,6 +262,10 @@ export async function loadXApiSnapshot(options: LoadOptions = {}): Promise<XApiS
   const username = process.env.X_API_USERNAME;
 
   if (!bearer || !username) {
+    const persistedFallback = snapshotCache?.value ?? loadLatestXApiSnapshotFromStore();
+    if (persistedFallback) {
+      return withGuardrail(persistedFallback, baseGuardrail);
+    }
     return cacheAndReturn({
       ...emptySnapshot("disabled"),
       followers: buildFollowerInsight(state, null),
@@ -325,7 +342,7 @@ export async function loadXApiSnapshot(options: LoadOptions = {}): Promise<XApiS
       .sort((a, b) => b.impressions - a.impressions)
       .slice(0, 5);
 
-    return cacheAndReturn({
+    const liveSnapshot: XApiSnapshot = {
       daily,
       topPosts,
       bestTimes,
@@ -341,16 +358,27 @@ export async function loadXApiSnapshot(options: LoadOptions = {}): Promise<XApiS
       guardrail: buildGuardrail(state, null),
       source: "api",
       fetchedAt: new Date()
-    });
+    };
+    appendXApiSnapshotToStore(liveSnapshot);
+    return cacheAndReturn(liveSnapshot);
   } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown X API error";
+    const persistedFallback = snapshotCache?.value ?? loadLatestXApiSnapshotFromStore();
+    if (persistedFallback) {
+      return withGuardrail(
+        persistedFallback,
+        buildGuardrail(
+          state,
+          `X API fetch failed; showing last persisted snapshot. ${errorMessage}`
+        )
+      );
+    }
     return cacheAndReturn({
       ...emptySnapshot("error"),
       followers: buildFollowerInsight(state, null),
-      guardrail: buildGuardrail(
-        state,
-        error instanceof Error ? error.message : "Unknown X API error"
-      ),
-      error: error instanceof Error ? error.message : "Unknown X API error"
+      guardrail: buildGuardrail(state, errorMessage),
+      error: errorMessage
     });
   } finally {
     if (options.forceRefresh) {
