@@ -67,6 +67,7 @@ export type DashboardData = {
   xMentions: XMentionsInsight;
   xQuotes: XQuotesInsight;
   xAmplifiers: XAmplifiersInsight;
+  xEngagementCohort: XEngagementCohortInsight;
   xFollowers: XFollowerInsight;
   xBrandListening: XBrandListeningInsight;
   xRefreshGuardrail: XRefreshGuardrail;
@@ -241,6 +242,21 @@ export type XAmplifierAccount = {
   supportingPosts: number;
 };
 
+export type XAmplifierConcentrationPoint = {
+  rank: number;
+  cumulativeShare: number;
+};
+
+export type XSupporterRetentionPoint = {
+  weekKey: string;
+  label: string;
+  weekStart: Date;
+  supporters: number;
+  returningSupporters: number;
+  newSupporters: number;
+  retentionRate: number | null;
+};
+
 export type XAmplifiersInsight = {
   available: boolean;
   note: string | null;
@@ -250,7 +266,35 @@ export type XAmplifiersInsight = {
   verifiedSupporters: number;
   repeatSupporters: number;
   repeatSupportersVerified: number;
+  totalInteractions: number;
+  top10Share: number | null;
+  top20Share: number | null;
+  concentrationCurve: XAmplifierConcentrationPoint[];
+  retention: XSupporterRetentionPoint[];
   leaderboard: XAmplifierAccount[];
+};
+
+export type XEngagementCohortCell = {
+  ageBucket: string;
+  posts: number;
+  medianEngagements: number | null;
+  medianEngagementRate: number | null;
+  averageEngagementRate: number | null;
+};
+
+export type XEngagementCohortRow = {
+  weekKey: string;
+  label: string;
+  weekStart: Date;
+  totalPosts: number;
+  cells: XEngagementCohortCell[];
+};
+
+export type XEngagementCohortInsight = {
+  available: boolean;
+  note: string | null;
+  ageBuckets: string[];
+  rows: XEngagementCohortRow[];
 };
 
 export type XFollowerSnapshot = {
@@ -570,6 +614,7 @@ export async function getDashboardData(
     xMentions: xApiSnapshot.mentions,
     xQuotes: xApiSnapshot.quotes,
     xAmplifiers: xApiSnapshot.amplifiers,
+    xEngagementCohort: xApiSnapshot.engagementCohort,
     xFollowers: xApiSnapshot.followers,
     xBrandListening: xApiSnapshot.brandListening,
     xRefreshGuardrail: xApiSnapshot.guardrail,
@@ -663,7 +708,18 @@ async function loadXApiSnapshotForMode(
         verifiedSupporters: 0,
         repeatSupporters: 0,
         repeatSupportersVerified: 0,
+        totalInteractions: 0,
+        top10Share: null,
+        top20Share: null,
+        concentrationCurve: [],
+        retention: [],
         leaderboard: []
+      },
+      engagementCohort: {
+        available: false,
+        note: "X API disabled in CSV mode.",
+        ageBuckets: [],
+        rows: []
       },
       followers: {
         currentFollowers: null,

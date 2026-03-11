@@ -12,6 +12,8 @@ type MetricPanelKey =
   | "x_guardrails"
   | "x_mentions"
   | "x_supporters"
+  | "x_cohort"
+  | "x_concentration"
   | "x_quotes"
   | "x_followers"
   | "x_brand"
@@ -39,6 +41,8 @@ const METRIC_PANELS: { key: MetricPanelKey; label: string }[] = [
   { key: "x_guardrails", label: "Refresh Guardrails" },
   { key: "x_mentions", label: "Mentions Intelligence" },
   { key: "x_supporters", label: "Repeat Supporters" },
+  { key: "x_cohort", label: "Engagement Cohort" },
+  { key: "x_concentration", label: "Engagement Concentration" },
   { key: "x_quotes", label: "Quote Analytics" },
   { key: "x_followers", label: "Follower Snapshot" },
   { key: "x_brand", label: "Brand Listening" }
@@ -74,6 +78,13 @@ export default async function HomePage({
     supporterFilter === "verified"
       ? data.xAmplifiers.leaderboard.filter((row) => row.verified)
       : data.xAmplifiers.leaderboard;
+  const cohortRows = data.xEngagementCohort.rows;
+  const cohortPosts = cohortRows.reduce((sum, row) => sum + row.totalPosts, 0);
+  const cohortCellRates = cohortRows
+    .flatMap((row) => row.cells)
+    .map((cell) => cell.medianEngagementRate)
+    .filter((value): value is number => value !== null);
+  const cohortMedianRate = medianNumber(cohortCellRates);
   const latestMentionsDay = data.xMentions.daily[data.xMentions.daily.length - 1] ?? null;
   const latestQuotesDay = data.xQuotes.daily[data.xQuotes.daily.length - 1] ?? null;
   const latestFollowerSnapshot =
@@ -1323,6 +1334,49 @@ export default async function HomePage({
             {data.xAmplifiers.note}
           </p>
         )}
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-white/80 p-4">
+          <h3 className="text-sm font-semibold text-ink">Supporter Retention (Week-over-Week)</h3>
+          <p className="muted mt-1 text-xs">
+            Uses supporter interactions on posts created in each week (UTC) to estimate returning supporters.
+          </p>
+          {data.xAmplifiers.retention.length < 2 ? (
+            <p className="muted mt-3 text-xs">
+              Need at least two weeks of source posts to compute retention.
+            </p>
+          ) : (
+            <div className="mt-3 space-y-3">
+              {data.xAmplifiers.retention.map((point) => {
+                const width =
+                  point.retentionRate !== null
+                    ? Math.max(2, Math.round(point.retentionRate * 100))
+                    : 0;
+                return (
+                  <div key={`retention-${point.weekKey}`}>
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="font-semibold text-ink">{point.label}</span>
+                      <span className="text-slate">
+                        supporters {formatNumber(point.supporters)} · returning{" "}
+                        {formatNumber(point.returningSupporters)} · new{" "}
+                        {formatNumber(point.newSupporters)} · rate{" "}
+                        {point.retentionRate !== null
+                          ? formatPercent(point.retentionRate)
+                          : "n/a"}
+                      </span>
+                    </div>
+                    <div className="mt-1 h-2 rounded-full bg-slate-100">
+                      {point.retentionRate !== null && (
+                        <div
+                          className="h-2 rounded-full bg-emerald-500"
+                          style={{ width: `${width}%` }}
+                        />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
         <div className="mt-5 flex flex-wrap items-center gap-2">
           <span className="muted text-xs">Filter:</span>
           <Link
@@ -1397,6 +1451,111 @@ export default async function HomePage({
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </section>
+      )}
+
+      {visiblePanels.has("x_cohort") && (
+      <section className="mt-10 card p-6">
+        <h2 className="section-title text-2xl">Engagement Cohort (X API)</h2>
+        <p className="muted mt-2 text-sm">
+          Groups posts by publish week, then compares median engagement as each post ages.
+        </p>
+        <div className="mt-6 grid gap-6 lg:grid-cols-4">
+          <MetricStatCard label="Cohort Weeks" value={formatCompact(cohortRows.length)} />
+          <MetricStatCard label="Posts in Cohorts" value={formatCompact(cohortPosts)} />
+          <MetricStatCard
+            label="Median Cohort ER"
+            value={cohortMedianRate !== null ? formatPercent(cohortMedianRate) : "n/a"}
+          />
+          <MetricStatCard
+            label="Age Buckets"
+            value={formatCompact(data.xEngagementCohort.ageBuckets.length)}
+            hint={data.xEngagementCohort.ageBuckets.join(", ")}
+          />
+        </div>
+        {data.xEngagementCohort.note && (
+          <p className="muted mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+            {data.xEngagementCohort.note}
+          </p>
+        )}
+        {cohortRows.length === 0 ? (
+          <p className="muted mt-6 text-sm">
+            No cohort rows available in the current API lookback window.
+          </p>
+        ) : (
+          <EngagementCohortMatrix
+            rows={cohortRows}
+            ageBuckets={data.xEngagementCohort.ageBuckets}
+          />
+        )}
+      </section>
+      )}
+
+      {visiblePanels.has("x_concentration") && (
+      <section className="mt-10 card p-6">
+        <h2 className="section-title text-2xl">Engagement Concentration (X API)</h2>
+        <p className="muted mt-2 text-sm">
+          Shows how much engagement comes from top supporters vs. the wider community.
+        </p>
+        <div className="mt-6 grid gap-6 lg:grid-cols-4">
+          <MetricStatCard
+            label="Top 10 Supporters Share"
+            value={
+              data.xAmplifiers.top10Share !== null
+                ? formatPercent(data.xAmplifiers.top10Share)
+                : "n/a"
+            }
+          />
+          <MetricStatCard
+            label="Top 20 Supporters Share"
+            value={
+              data.xAmplifiers.top20Share !== null
+                ? formatPercent(data.xAmplifiers.top20Share)
+                : "n/a"
+            }
+          />
+          <MetricStatCard
+            label="Tracked Interactions"
+            value={formatCompact(data.xAmplifiers.totalInteractions)}
+            hint="Likes + reposts on scanned source posts"
+          />
+          <MetricStatCard
+            label="Concentration Level"
+            value={describeConcentration(data.xAmplifiers.top10Share)}
+            hint="Heuristic from top-10 supporter share"
+          />
+        </div>
+        {data.xAmplifiers.concentrationCurve.length === 0 ? (
+          <p className="muted mt-6 text-sm">
+            Need supporter interactions to build the concentration curve.
+          </p>
+        ) : (
+          <div className="mt-6 rounded-2xl border border-slate-200 bg-white/80 p-4">
+            <h3 className="text-sm font-semibold text-ink">Cumulative Interaction Share</h3>
+            <p className="muted mt-1 text-xs">
+              Each row shows what share of total interactions is captured by top-N supporters.
+            </p>
+            <div className="mt-4 space-y-3">
+              {data.xAmplifiers.concentrationCurve.map((point) => {
+                const width = Math.max(2, Math.round(point.cumulativeShare * 100));
+                return (
+                  <div key={`curve-${point.rank}`}>
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="font-semibold text-ink">Top {point.rank}</span>
+                      <span className="text-slate">{formatPercent(point.cumulativeShare)}</span>
+                    </div>
+                    <div className="mt-1 h-2 rounded-full bg-slate-100">
+                      <div
+                        className="h-2 rounded-full bg-blue-500"
+                        style={{ width: `${width}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </section>
@@ -1861,6 +2020,95 @@ function TimeMatrixCard({
   );
 }
 
+function EngagementCohortMatrix({
+  rows,
+  ageBuckets
+}: {
+  rows: {
+    weekKey: string;
+    label: string;
+    totalPosts: number;
+    cells: {
+      ageBucket: string;
+      posts: number;
+      medianEngagementRate: number | null;
+      averageEngagementRate: number | null;
+    }[];
+  }[];
+  ageBuckets: string[];
+}) {
+  // We color by relative median engagement rate so stronger cohort-age cells pop immediately.
+  const maxRate = Math.max(
+    ...rows.flatMap((row) =>
+      row.cells
+        .map((cell) => cell.medianEngagementRate ?? 0)
+        .filter((value) => value > 0)
+    ),
+    0
+  );
+
+  return (
+    <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-200 bg-white/80 p-4">
+      <table className="w-full min-w-[920px] text-left text-sm">
+        <thead className="text-xs uppercase tracking-[0.12em] text-slate">
+          <tr>
+            <th className="pb-3 pr-4">Publish Week (UTC)</th>
+            {ageBuckets.map((bucket) => (
+              <th key={`cohort-bucket-${bucket}`} className="pb-3 pr-4">
+                {bucket}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-200">
+          {rows.map((row) => (
+            <tr key={`cohort-row-${row.weekKey}`}>
+              <td className="py-4 pr-4 align-top">
+                <p className="font-semibold text-ink">{row.label}</p>
+                <p className="muted mt-1 text-xs">{formatNumber(row.totalPosts)} posts</p>
+              </td>
+              {row.cells.map((cell) => {
+                const intensity =
+                  cell.medianEngagementRate !== null && maxRate > 0
+                    ? 0.12 + (cell.medianEngagementRate / maxRate) * 0.68
+                    : 0.08;
+                return (
+                  <td key={`cohort-cell-${row.weekKey}-${cell.ageBucket}`} className="py-4 pr-4">
+                    <div
+                      className="rounded-lg border border-slate-200 px-3 py-2"
+                      style={{
+                        backgroundColor:
+                          cell.posts > 0
+                            ? `rgba(var(--accent-rgb), ${intensity})`
+                            : "rgba(148, 163, 184, 0.08)"
+                      }}
+                    >
+                      <p className="text-xs font-semibold text-ink">
+                        {cell.medianEngagementRate !== null
+                          ? formatPercent(cell.medianEngagementRate)
+                          : "n/a"}
+                      </p>
+                      <p className="mt-1 text-[11px] text-slate">
+                        {formatNumber(cell.posts)} posts
+                        {cell.averageEngagementRate !== null
+                          ? ` · avg ${formatPercent(cell.averageEngagementRate)}`
+                          : ""}
+                      </p>
+                    </div>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="muted mt-3 text-[11px]">
+        Cell value = median engagement rate for posts in that publish-week cohort and age bucket.
+      </p>
+    </div>
+  );
+}
+
 function getValidationStatus(item: {
   source: string;
   missingRequired: string[];
@@ -2128,6 +2376,23 @@ function formatSignedNumber(value: number): string {
   if (value > 0) return `+${formatNumber(value)}`;
   if (value < 0) return `-${formatNumber(Math.abs(value))}`;
   return "0";
+}
+
+function medianNumber(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+  return sorted[mid];
+}
+
+function describeConcentration(top10Share: number | null): string {
+  if (top10Share === null) return "n/a";
+  if (top10Share >= 0.7) return "High";
+  if (top10Share >= 0.45) return "Medium";
+  return "Low";
 }
 
 function buildCsvDownloadHref(rows: string[][]): string {

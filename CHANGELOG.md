@@ -1,0 +1,28 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.0.0] - 2026-03-11
+
+### Added
+- Hybrid API + CSV ingestion for X and LinkedIn with independent platform modes.
+- Manual API refresh guardrails: cooldown, daily cap, and in-flight lock.
+- X intelligence panels: mentions, quote analytics, repeat supporters, follower snapshot, and optional brand listening.
+- Supporter retention (week-over-week) from interaction endpoints.
+- Engagement cohort panel (publish-week cohorts by post-age bucket).
+- Engagement concentration panel (top-10/top-20 share and concentration curve).
+- CSV exports for follower snapshots and supporter leaderboard.
+- CSV validator, data-quality checks, monthly folder merge logic, and setup checklist.
+- `PROMPT.md`, `IMPORT_GUIDE.md`, and `METRICS_REFERENCE.md` for non-technical setup and troubleshooting.
+
+### Security
+- API calls are server-side only.
+- `.env.local` remains ignored.
+- local cache state in `Data/cache/x_api_state.json` excludes credentials.
+
+### Notes
+- `X_MENTIONS_LOOKBACK_DAYS` defaults to `30` (one-month window).
+- LinkedIn API adapter in v1 remains daily/org focused; LinkedIn top posts still rely on CSV.

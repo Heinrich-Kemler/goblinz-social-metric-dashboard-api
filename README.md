@@ -78,7 +78,7 @@ Optional:
 - `X_API_CACHE_SECONDS` (default `900`)
 - `X_API_REFRESH_COOLDOWN_SECONDS` (default `120`)
 - `X_API_DAILY_REFRESH_CAP` (default `15`)
-- `X_MENTIONS_LOOKBACK_DAYS` (default `30`)
+- `X_MENTIONS_LOOKBACK_DAYS` (default `30`, one-month mentions window)
 - `X_QUOTE_SOURCE_POST_LIMIT` (default `12`)
 - `X_AMPLIFIER_SOURCE_POST_LIMIT` (default `8`)
 - `X_REPEAT_SUPPORTER_THRESHOLD` (default `5`)
@@ -207,6 +207,16 @@ Subfolders are supported under `Data/raw` (recursive scan), for example:
 - `.env*` must stay gitignored.
 - X refresh usage + follower snapshots are stored locally in `Data/cache/x_api_state.json` (no API keys stored there).
 - You are responsible for API credential handling and any usage costs charged by providers.
+
+## Versioning and updates
+
+- Stable releases are tracked with git tags (for example: `v1.0.0`).
+- Full change history is in `CHANGELOG.md`.
+- Release procedure and rollback notes are in `docs/RELEASE_PROCESS.md`.
+- Older versions remain available by checking out a tag:
+  - `git checkout v1.0.0`
+- Users only get updates when they explicitly run:
+  - `git pull origin main`
 
 ## Current v1 limits
 

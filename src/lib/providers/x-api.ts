@@ -4,10 +4,12 @@ import type {
   BestTimeSlot,
   DailyMetric,
   XAmplifierAccount,
+  XAmplifierConcentrationPoint,
   XAmplifiersInsight,
   XBrandAuthor,
   XBrandDaily,
   XBrandListeningInsight,
+  XEngagementCohortInsight,
   XFollowerInsight,
   XFollowerSnapshot,
   XMentionAccount,
@@ -18,6 +20,7 @@ import type {
   XQuoteDaily,
   XQuotedPost,
   XQuotesInsight,
+  XSupporterRetentionPoint,
   XRefreshGuardrail
 } from "@/lib/metrics";
 
@@ -97,6 +100,7 @@ export type XApiSnapshot = {
   mentions: XMentionsInsight;
   quotes: XQuotesInsight;
   amplifiers: XAmplifiersInsight;
+  engagementCohort: XEngagementCohortInsight;
   followers: XFollowerInsight;
   brandListening: XBrandListeningInsight;
   guardrail: XRefreshGuardrail;
@@ -153,6 +157,14 @@ const FOLLOWER_SNAPSHOT_MIN_MINUTES = clampNumber(
   1,
   1440
 );
+const COHORT_AGE_BUCKETS: Array<{ key: string; minHours: number; maxHours: number }> = [
+  { key: "0-24h", minHours: 0, maxHours: 24 },
+  { key: "1-3d", minHours: 24, maxHours: 72 },
+  { key: "3-7d", minHours: 72, maxHours: 168 },
+  { key: "7-14d", minHours: 168, maxHours: 336 },
+  { key: "14-30d", minHours: 336, maxHours: 720 },
+  { key: "30d+", minHours: 720, maxHours: Number.POSITIVE_INFINITY }
+];
 const STATE_FILE = path.join(process.cwd(), "Data", "cache", "x_api_state.json");
 
 let snapshotCache: { expiresAt: number; value: XApiSnapshot } | null = null;
@@ -251,6 +263,7 @@ export async function loadXApiSnapshot(options: LoadOptions = {}): Promise<XApiS
     const daily = aggregateDaily(tweets);
     const timeMatrix = buildTimeMatrix(tweets);
     const bestTimes = rankTopSlots(timeMatrix);
+    const engagementCohort = buildEngagementCohort(tweets, new Date());
     const topPosts = tweets
       .map(toPostSummary)
       .sort((a, b) => b.impressions - a.impressions)
@@ -265,6 +278,7 @@ export async function loadXApiSnapshot(options: LoadOptions = {}): Promise<XApiS
       mentions: mentionsOutcome,
       quotes: quotesInsight,
       amplifiers: amplifiersInsight,
+      engagementCohort,
       followers: followerInsight,
       brandListening: brandOutcome,
       guardrail: buildGuardrail(state, null),
@@ -654,10 +668,15 @@ async function loadAmplifierInsight(
       supportingPosts: Set<string>;
     }
   >();
+  const byWeekSupporters = new Map<string, Set<string>>();
+  const weekStartByKey = new Map<string, Date>();
 
   try {
     for (const sourceTweet of sourceTweets) {
       const tweetId = sourceTweet.id;
+      const createdAt = parseIsoDate(sourceTweet.created_at);
+      const weekStart = createdAt ? getWeekStartUtc(createdAt) : null;
+      const weekKey = weekStart ? toDayKey(weekStart) : null;
       const [likingUsers, retweetedUsers] = await Promise.all([
         fetchTweetInteractionUsers(tweetId, "liking_users", bearer),
         fetchTweetInteractionUsers(tweetId, "retweeted_by", bearer)
@@ -665,6 +684,16 @@ async function loadAmplifierInsight(
 
       const likedIds = new Set(likingUsers.map((user) => user.id));
       const repostedIds = new Set(retweetedUsers.map((user) => user.id));
+      const interactionIds = new Set<string>([...likedIds, ...repostedIds]);
+
+      if (weekKey) {
+        const weekSet = byWeekSupporters.get(weekKey) ?? new Set<string>();
+        interactionIds.forEach((userId) => weekSet.add(userId));
+        byWeekSupporters.set(weekKey, weekSet);
+        if (!weekStartByKey.has(weekKey)) {
+          weekStartByKey.set(weekKey, weekStart ?? parseDayKey(weekKey));
+        }
+      }
 
       for (const user of likingUsers) {
         const entry =
@@ -701,8 +730,8 @@ async function loadAmplifierInsight(
       }
     }
 
-    const leaderboard: XAmplifierAccount[] = Array.from(byAccount.entries())
-      .map(([userId, entry]) => {
+    const accountStats: XAmplifierAccount[] = Array.from(byAccount.entries()).map(
+      ([userId, entry]) => {
         const interactions = entry.likes + entry.reposts;
         return {
           userId,
@@ -714,20 +743,34 @@ async function loadAmplifierInsight(
           interactions,
           supportingPosts: entry.supportingPosts.size
         };
-      })
+      }
+    );
+
+    const leaderboard: XAmplifierAccount[] = [...accountStats]
       .sort((a, b) => {
         if (b.interactions !== a.interactions) return b.interactions - a.interactions;
         return b.supportingPosts - a.supportingPosts;
       })
       .slice(0, 50);
 
-    const repeatSupporters = leaderboard.filter(
+    const repeatSupporters = accountStats.filter(
       (entry) => entry.interactions >= REPEAT_SUPPORTER_THRESHOLD
     );
-    const allAccounts = Array.from(byAccount.values());
-    const verifiedSupporters = allAccounts.filter((entry) =>
-      Boolean(entry.profile.verified)
-    ).length;
+    const retention = buildSupporterRetentionSeries(byWeekSupporters, weekStartByKey);
+    const verifiedSupporters = accountStats.filter((entry) => entry.verified).length;
+    const totalInteractions = accountStats.reduce(
+      (sum, entry) => sum + entry.interactions,
+      0
+    );
+    const sortedCounts = accountStats
+      .map((entry) => entry.interactions)
+      .filter((value) => value > 0)
+      .sort((a, b) => b - a);
+    const concentrationCurve = buildConcentrationCurve(sortedCounts, totalInteractions, [
+      1, 3, 5, 10, 20, 50
+    ]);
+    const top10Share = shareForTopN(sortedCounts, totalInteractions, 10);
+    const top20Share = shareForTopN(sortedCounts, totalInteractions, 20);
 
     return {
       available: true,
@@ -738,6 +781,11 @@ async function loadAmplifierInsight(
       verifiedSupporters,
       repeatSupporters: repeatSupporters.length,
       repeatSupportersVerified: repeatSupporters.filter((entry) => entry.verified).length,
+      totalInteractions,
+      top10Share,
+      top20Share,
+      concentrationCurve,
+      retention,
       leaderboard
     };
   } catch (error) {
@@ -1351,6 +1399,7 @@ function emptySnapshot(source: "disabled" | "error" | "paused"): XApiSnapshot {
     mentions: emptyMentionsInsight(),
     quotes: emptyQuotesInsight(),
     amplifiers: emptyAmplifiersInsight(),
+    engagementCohort: emptyEngagementCohortInsight(),
     followers: emptyFollowerInsight(),
     brandListening: emptyBrandListeningInsight(),
     guardrail: {
@@ -1403,7 +1452,21 @@ function emptyAmplifiersInsight(): XAmplifiersInsight {
     verifiedSupporters: 0,
     repeatSupporters: 0,
     repeatSupportersVerified: 0,
+    totalInteractions: 0,
+    top10Share: null,
+    top20Share: null,
+    concentrationCurve: [],
+    retention: [],
     leaderboard: []
+  };
+}
+
+function emptyEngagementCohortInsight(): XEngagementCohortInsight {
+  return {
+    available: false,
+    note: null,
+    ageBuckets: COHORT_AGE_BUCKETS.map((bucket) => bucket.key),
+    rows: []
   };
 }
 
@@ -1458,6 +1521,16 @@ function parseDayKey(dayKey: string): Date {
   return new Date(Date.UTC(year, month - 1, day));
 }
 
+function getWeekStartUtc(date: Date): Date {
+  const utcMidnight = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+  );
+  const day = utcMidnight.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day; // Monday week start
+  utcMidnight.setUTCDate(utcMidnight.getUTCDate() + diff);
+  return utcMidnight;
+}
+
 function toDayKey(date: Date): string {
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, "0");
@@ -1467,6 +1540,190 @@ function toDayKey(date: Date): string {
 
 function toUtcDayKey(date: Date): string {
   return toDayKey(date);
+}
+
+function buildSupporterRetentionSeries(
+  byWeekSupporters: Map<string, Set<string>>,
+  weekStartByKey: Map<string, Date>
+): XSupporterRetentionPoint[] {
+  // Retention is computed between consecutive publish weeks (UTC week start = Monday).
+  const weekKeys = Array.from(byWeekSupporters.keys()).sort();
+  let previous: Set<string> | null = null;
+
+  return weekKeys.map((weekKey) => {
+    const supportersSet = byWeekSupporters.get(weekKey) ?? new Set<string>();
+    const supporters = supportersSet.size;
+    const returningSupporters =
+      previous && previous.size > 0 ? countIntersection(previous, supportersSet) : 0;
+    const newSupporters =
+      previous && previous.size > 0 ? Math.max(0, supporters - returningSupporters) : supporters;
+    const retentionRate =
+      previous && previous.size > 0 ? returningSupporters / previous.size : null;
+    const weekStart = weekStartByKey.get(weekKey) ?? parseDayKey(weekKey);
+    const label = formatWeekLabel(weekStart);
+    previous = supportersSet;
+    return {
+      weekKey,
+      label,
+      weekStart,
+      supporters,
+      returningSupporters,
+      newSupporters,
+      retentionRate
+    };
+  });
+}
+
+function buildConcentrationCurve(
+  sortedInteractionCounts: number[],
+  totalInteractions: number,
+  ranks: number[]
+): XAmplifierConcentrationPoint[] {
+  // The curve lets UI show concentration at practical checkpoints (top 1, 3, 5, 10, ...).
+  return ranks.map((rank) => ({
+    rank,
+    cumulativeShare: shareForTopN(sortedInteractionCounts, totalInteractions, rank) ?? 0
+  }));
+}
+
+function shareForTopN(
+  sortedInteractionCounts: number[],
+  totalInteractions: number,
+  n: number
+): number | null {
+  if (totalInteractions <= 0) return null;
+  const topSum = sortedInteractionCounts
+    .slice(0, Math.max(0, n))
+    .reduce((sum, value) => sum + value, 0);
+  return topSum / totalInteractions;
+}
+
+function buildEngagementCohort(
+  tweets: XApiTweet[],
+  now: Date
+): XEngagementCohortInsight {
+  // Cohort layout: row = publish week, column = post age bucket at refresh time.
+  if (tweets.length === 0) {
+    return {
+      ...emptyEngagementCohortInsight(),
+      note: "No posts in current lookback window."
+    };
+  }
+
+  const rowMap = new Map<
+    string,
+    {
+      weekStart: Date;
+      totalPosts: number;
+      cells: Map<string, { engagements: number[]; rates: number[] }>;
+    }
+  >();
+
+  for (const tweet of tweets) {
+    const createdAt = parseIsoDate(tweet.created_at);
+    if (!createdAt) continue;
+    const ageHours = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+    if (ageHours < 0) continue;
+    const ageBucket = getAgeBucket(ageHours);
+    if (!ageBucket) continue;
+
+    const weekStart = getWeekStartUtc(createdAt);
+    const weekKey = toDayKey(weekStart);
+    const impressions =
+      tweet.non_public_metrics?.impression_count ??
+      tweet.organic_metrics?.impression_count ??
+      tweet.public_metrics?.impression_count ??
+      0;
+    const engagements =
+      (tweet.public_metrics?.like_count ?? 0) +
+      (tweet.public_metrics?.reply_count ?? 0) +
+      (tweet.public_metrics?.retweet_count ?? 0) +
+      (tweet.public_metrics?.quote_count ?? 0);
+    const rate = impressions > 0 ? engagements / impressions : null;
+
+    const row =
+      rowMap.get(weekKey) ??
+      {
+        weekStart,
+        totalPosts: 0,
+        cells: new Map<string, { engagements: number[]; rates: number[] }>()
+      };
+    row.totalPosts += 1;
+    const cell = row.cells.get(ageBucket) ?? { engagements: [], rates: [] };
+    cell.engagements.push(engagements);
+    if (rate !== null) {
+      cell.rates.push(rate);
+    }
+    row.cells.set(ageBucket, cell);
+    rowMap.set(weekKey, row);
+  }
+
+  const rows = Array.from(rowMap.entries())
+    .sort((a, b) => a[1].weekStart.getTime() - b[1].weekStart.getTime())
+    .map(([weekKey, row]) => ({
+      weekKey,
+      label: formatWeekLabel(row.weekStart),
+      weekStart: row.weekStart,
+      totalPosts: row.totalPosts,
+      cells: COHORT_AGE_BUCKETS.map((bucket) => {
+        const value = row.cells.get(bucket.key);
+        const engagements = value?.engagements ?? [];
+        const rates = value?.rates ?? [];
+        return {
+          ageBucket: bucket.key,
+          posts: engagements.length,
+          medianEngagements: median(engagements),
+          medianEngagementRate: median(rates),
+          averageEngagementRate:
+            rates.length > 0
+              ? rates.reduce((sum, item) => sum + item, 0) / rates.length
+              : null
+        };
+      })
+    }));
+
+  return {
+    available: rows.length > 0,
+    note: rows.length > 0 ? null : "No posts in current lookback window.",
+    ageBuckets: COHORT_AGE_BUCKETS.map((bucket) => bucket.key),
+    rows
+  };
+}
+
+function getAgeBucket(ageHours: number): string | null {
+  const matched = COHORT_AGE_BUCKETS.find(
+    (bucket) => ageHours >= bucket.minHours && ageHours < bucket.maxHours
+  );
+  return matched?.key ?? null;
+}
+
+function median(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+  return sorted[mid];
+}
+
+function countIntersection(a: Set<string>, b: Set<string>): number {
+  let count = 0;
+  a.forEach((value) => {
+    if (b.has(value)) count += 1;
+  });
+  return count;
+}
+
+function formatWeekLabel(weekStart: Date): string {
+  const weekEnd = new Date(weekStart);
+  weekEnd.setUTCDate(weekEnd.getUTCDate() + 6);
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric"
+  });
+  return `${formatter.format(weekStart)}-${formatter.format(weekEnd)}`;
 }
 
 function clampNumber(

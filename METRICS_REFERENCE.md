@@ -20,7 +20,9 @@ Legend:
 | API freshness chips | No | Yes | Shows last successful API fetch time |
 | X refresh guardrails panel | No | Yes | Shows cooldown, daily cap, in-flight lock status |
 | Mentions intelligence panel | No | Yes | Uses `users/:id/mentions` for daily mentions + top mentioners |
-| Repeat supporters panel | No | Yes | Uses `retweeted_by` + `liking_users`; includes verified filter |
+| Repeat supporters panel | No | Yes | Uses `retweeted_by` + `liking_users`; includes verified filter + weekly retention estimate |
+| Engagement cohort panel | No | Yes | Publish-week cohorts vs post-age buckets (`0-24h`, `1-3d`, `3-7d`, `7-14d`, `14-30d`, `30d+`) |
+| Engagement concentration panel | No | Yes | Top-10/top-20 interaction share + cumulative concentration curve |
 | Quote analytics panel | No | Yes | Uses `quote_tweets`; shows top quoted posts + quote author trend |
 | Follower snapshot panel | No | Yes | Stores snapshots per refresh and computes deltas |
 | Brand listening panel | No | Yes (optional) | Enabled only when `X_BRAND_QUERY` is configured |
