@@ -18,6 +18,13 @@ Legend:
 | Best day+hour matrix | Yes (if timestamps exist) | Yes for X, partial for LinkedIn | Heatmap by weekday and UTC hour |
 | Video watch time (X) | Yes (`x_video_overview`) | No | API adapter v1 does not include watch-time endpoints |
 | API freshness chips | No | Yes | Shows last successful API fetch time |
+| X refresh guardrails panel | No | Yes | Shows cooldown, daily cap, in-flight lock status |
+| Mentions intelligence panel | No | Yes | Uses `users/:id/mentions` for daily mentions + top mentioners |
+| Repeat supporters panel | No | Yes | Uses `retweeted_by` + `liking_users`; includes verified filter |
+| Quote analytics panel | No | Yes | Uses `quote_tweets`; shows top quoted posts + quote author trend |
+| Follower snapshot panel | No | Yes | Stores snapshots per refresh and computes deltas |
+| Brand listening panel | No | Yes (optional) | Enabled only when `X_BRAND_QUERY` is configured |
+| CSV export (supporters + follower snapshots) | No | Yes | Download current intelligence tables for offline history |
 | Follow/profile efficiency (X) | Yes (if columns exist) | Yes | API may improve freshness |
 
 ## Cost-safe defaults

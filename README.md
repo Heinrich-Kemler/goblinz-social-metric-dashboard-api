@@ -48,8 +48,8 @@ cp .env.example .env.local
 
 ## Beginner setup helper (LLM prompt)
 
-- Open `/Users/cryptogoblinbonk/Desktop/Metrics dashboard/goblinz-social-metric-dashboard-privateapi/PROMPT.md`
-- Copy and paste it into ChatGPT/Claude/Gemini.
+- Open `PROMPT.md` from the repo root.
+- Copy and paste it into ChatGPT/Claude/Gemini/OpenClaw/Cursor agent.
 - It is written for one-step-at-a-time setup and troubleshooting.
 
 ## Data modes
@@ -76,6 +76,17 @@ Optional:
 
 - `X_API_LOOKBACK_DAYS` (default `30`, bounded to `7..30`)
 - `X_API_CACHE_SECONDS` (default `900`)
+- `X_API_REFRESH_COOLDOWN_SECONDS` (default `120`)
+- `X_API_DAILY_REFRESH_CAP` (default `15`)
+- `X_MENTIONS_LOOKBACK_DAYS` (default `30`)
+- `X_QUOTE_SOURCE_POST_LIMIT` (default `12`)
+- `X_AMPLIFIER_SOURCE_POST_LIMIT` (default `8`)
+- `X_REPEAT_SUPPORTER_THRESHOLD` (default `5`)
+- `X_FOLLOWER_HISTORY_LIMIT` (default `180`)
+- `X_FOLLOWER_SNAPSHOT_MIN_MINUTES` (default `30`)
+- `X_BRAND_QUERY` (optional, enables brand listening)
+- `X_BRAND_COMPARE_QUERY` (optional compare query for share-of-voice)
+- `X_BRAND_LOOKBACK_DAYS` (default `7`, bounded to `1..7`)
 
 The X provider currently pulls your recent tweets and aggregates:
 
@@ -83,6 +94,12 @@ The X provider currently pulls your recent tweets and aggregates:
 - Daily post counts
 - Top posts by impressions
 - Best posting time slots (day + hour, UTC)
+- Mentions intelligence (`/users/:id/mentions`)
+- Quote-post analytics (`/tweets/:id/quote_tweets`)
+- Amplifier/repeat-supporter leaderboard (`/tweets/:id/retweeted_by` + `liking_users`)
+- Follower snapshot history (`/users/:id`, `public_metrics`)
+- Optional brand listening (`/tweets/search/recent` when `X_BRAND_QUERY` is set)
+- CSV download buttons for supporter leaderboard and follower snapshots
 
 ## LinkedIn API setup (v1 adapter)
 
@@ -160,6 +177,10 @@ Subfolders are supported under `Data/raw` (recursive scan), for example:
 - API responses are cached server-side (15 minutes by default when auto refresh is enabled).
 - Use the **Manual API Refresh** button when you want a fresh pull now.
 - The refresh button shows a confirmation because API pulls may use paid credits.
+- Manual refresh guardrails are built in for X:
+  - Cooldown between refreshes (`X_API_REFRESH_COOLDOWN_SECONDS`)
+  - Daily cap (`X_API_DAILY_REFRESH_CAP`)
+  - In-flight lock (prevents overlapping refresh runs)
 - **Reload CSV** refreshes local CSV-derived metrics without API calls.
 - For lowest cost, set `X_DATA_MODE=csv` and/or `LINKEDIN_DATA_MODE=csv`.
 - Practical strategy: keep monthly CSV exports as your long-term archive, then use `auto` only when you need recent API enrichment.
@@ -184,6 +205,7 @@ Subfolders are supported under `Data/raw` (recursive scan), for example:
 - Never expose secrets in `NEXT_PUBLIC_*` vars.
 - API calls happen server-side only.
 - `.env*` must stay gitignored.
+- X refresh usage + follower snapshots are stored locally in `Data/cache/x_api_state.json` (no API keys stored there).
 - You are responsible for API credential handling and any usage costs charged by providers.
 
 ## Current v1 limits

@@ -9,6 +9,12 @@ type MetricPanelKey =
   | "snapshot"
   | "totals"
   | "data_quality"
+  | "x_guardrails"
+  | "x_mentions"
+  | "x_supporters"
+  | "x_quotes"
+  | "x_followers"
+  | "x_brand"
   | "per_post"
   | "quality_signals"
   | "efficiency_signals"
@@ -29,7 +35,13 @@ const METRIC_PANELS: { key: MetricPanelKey; label: string }[] = [
   { key: "overview_visuals", label: "Overview Visuals" },
   { key: "top_posts", label: "Top Posts" },
   { key: "best_times", label: "Best Times" },
-  { key: "time_matrix", label: "Day/Hour Matrix" }
+  { key: "time_matrix", label: "Day/Hour Matrix" },
+  { key: "x_guardrails", label: "Refresh Guardrails" },
+  { key: "x_mentions", label: "Mentions Intelligence" },
+  { key: "x_supporters", label: "Repeat Supporters" },
+  { key: "x_quotes", label: "Quote Analytics" },
+  { key: "x_followers", label: "Follower Snapshot" },
+  { key: "x_brand", label: "Brand Listening" }
 ];
 
 // Server component: data is loaded here so charts can stay focused on rendering.
@@ -54,6 +66,39 @@ export default async function HomePage({
   const xApiEnabled = xSource?.mode === "api" || xSource?.mode === "hybrid";
   const linkedInApiEnabled =
     linkedInSource?.mode === "api" || linkedInSource?.mode === "hybrid";
+  const supporterFilterParam = Array.isArray(params.supporters)
+    ? params.supporters[0]
+    : params.supporters;
+  const supporterFilter = supporterFilterParam === "verified" ? "verified" : "all";
+  const supporterRows =
+    supporterFilter === "verified"
+      ? data.xAmplifiers.leaderboard.filter((row) => row.verified)
+      : data.xAmplifiers.leaderboard;
+  const latestMentionsDay = data.xMentions.daily[data.xMentions.daily.length - 1] ?? null;
+  const latestQuotesDay = data.xQuotes.daily[data.xQuotes.daily.length - 1] ?? null;
+  const latestFollowerSnapshot =
+    data.xFollowers.snapshots[data.xFollowers.snapshots.length - 1] ?? null;
+  const followerSnapshotCsvHref = buildCsvDownloadHref(
+    [
+      ["captured_at_utc", "followers"],
+      ...data.xFollowers.snapshots.map((snapshot) => [
+        snapshot.capturedAt.toISOString(),
+        String(snapshot.followers)
+      ])
+    ]
+  );
+  const supporterCsvHref = buildCsvDownloadHref([
+    ["handle", "name", "verified", "interactions", "likes", "reposts", "supporting_posts"],
+    ...supporterRows.map((row) => [
+      row.handle,
+      row.name,
+      row.verified ? "yes" : "no",
+      String(row.interactions),
+      String(row.likes),
+      String(row.reposts),
+      String(row.supportingPosts)
+    ])
+  ]);
 
   const latestMonth = data.combined.monthly[data.combined.monthly.length - 1] ?? null;
   const latestMonthKey = latestMonth?.monthKey ?? "";
@@ -254,6 +299,10 @@ export default async function HomePage({
               <div className="glass rounded-full px-4 py-2">
                 API freshness: X {xApiFreshness}, LinkedIn {linkedInApiFreshness}
               </div>
+              <div className="glass rounded-full px-4 py-2">
+                X refresh budget: {data.xRefreshGuardrail.refreshesUsedToday}/
+                {data.xRefreshGuardrail.dailyCap}
+              </div>
               {data.sourceStates.map((state) => (
                 <div
                   key={`${state.platform}-${state.mode}`}
@@ -316,6 +365,13 @@ export default async function HomePage({
             label="X Video Watch Data"
             active={data.x.totals.videoWatchViews > 0}
           />
+          <StatusPill label="X Mentions Data" active={data.xMentions.available} />
+          <StatusPill label="X Quote Data" active={data.xQuotes.available} />
+          <StatusPill label="X Supporter Data" active={data.xAmplifiers.available} />
+          <StatusPill
+            label="X Follower Snapshots"
+            active={data.xFollowers.snapshots.length > 0}
+          />
         </div>
 
         <div className="mt-5 flex flex-wrap gap-2">
@@ -344,6 +400,7 @@ export default async function HomePage({
           })}
         </div>
       </section>
+
 
       {/* Top-line KPIs: latest month snapshot with MoM context. */}
       {visiblePanels.has("snapshot") && (
@@ -1103,6 +1160,525 @@ export default async function HomePage({
         </div>
       </section>
 
+      {/* X API intelligence panels */}
+      {visiblePanels.has("x_guardrails") && (
+      <section className="mt-10 card p-6">
+        <h2 className="section-title text-2xl">X Refresh Guardrails</h2>
+        <p className="muted mt-2 text-sm">
+          Manual API refreshes are protected by cooldown, daily cap, and in-flight lock.
+        </p>
+        <div className="mt-6 grid gap-6 lg:grid-cols-4">
+          <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+            <p className="muted text-xs">Cooldown</p>
+            <p className="mt-2 text-2xl font-semibold text-ink">
+              {data.xRefreshGuardrail.cooldownSeconds}s
+            </p>
+            <p className="muted mt-1 text-xs">Minimum wait after each manual refresh.</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+            <p className="muted text-xs">Daily Cap</p>
+            <p className="mt-2 text-2xl font-semibold text-ink">
+              {data.xRefreshGuardrail.dailyCap}
+            </p>
+            <p className="muted mt-1 text-xs">Max manual refreshes per UTC day.</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+            <p className="muted text-xs">Used Today</p>
+            <p className="mt-2 text-2xl font-semibold text-ink">
+              {data.xRefreshGuardrail.refreshesUsedToday}
+            </p>
+            <p className="muted mt-1 text-xs">Day key: {data.xRefreshGuardrail.dayKey}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+            <p className="muted text-xs">Remaining Today</p>
+            <p className="mt-2 text-2xl font-semibold text-ink">
+              {data.xRefreshGuardrail.refreshesRemainingToday}
+            </p>
+            <p className="muted mt-1 text-xs">
+              {data.xRefreshGuardrail.nextAllowedAt
+                ? `Next allowed: ${formatDateTimeShort(data.xRefreshGuardrail.nextAllowedAt)}`
+                : "No cooldown active"}
+            </p>
+          </div>
+        </div>
+        {data.xRefreshGuardrail.inFlight && (
+          <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            A manual refresh is currently running. Wait before triggering another call.
+          </p>
+        )}
+        {data.xRefreshGuardrail.blockedReason && (
+          <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {data.xRefreshGuardrail.blockedReason}
+          </p>
+        )}
+      </section>
+      )}
+
+      {visiblePanels.has("x_mentions") && (
+      <section className="mt-10 card p-6">
+        <h2 className="section-title text-2xl">Mentions Intelligence (X API)</h2>
+        <p className="muted mt-2 text-sm">
+          Daily mention volume, unique mentioners, verified mentioners, and top mentioning accounts.
+        </p>
+        <div className="mt-6 grid gap-6 lg:grid-cols-4">
+          <MetricStatCard label="Total Mentions" value={formatCompact(data.xMentions.totalMentions)} />
+          <MetricStatCard
+            label="Unique Mentioners"
+            value={formatCompact(data.xMentions.uniqueMentioners)}
+          />
+          <MetricStatCard
+            label="Verified Mentioners"
+            value={formatCompact(data.xMentions.verifiedMentioners)}
+          />
+          <MetricStatCard
+            label="Latest Day Mentions"
+            value={latestMentionsDay ? formatCompact(latestMentionsDay.mentions) : "n/a"}
+            hint={latestMentionsDay ? formatDateShort(latestMentionsDay.date) : "No mention rows"}
+          />
+        </div>
+        {data.xMentions.note && (
+          <p className="muted mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+            {data.xMentions.note}
+          </p>
+        )}
+        {data.xMentions.topMentioners.length === 0 ? (
+          <p className="muted mt-6 text-sm">
+            No mention accounts in current API window.
+          </p>
+        ) : (
+          <div className="mt-6 overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="text-xs uppercase tracking-[0.12em] text-slate">
+                <tr>
+                  <th className="pb-3 pr-4">Account</th>
+                  <th className="pb-3 pr-4">Verified</th>
+                  <th className="pb-3 pr-4">Mentions</th>
+                  <th className="pb-3 pr-4">Mention Engagements</th>
+                  <th className="pb-3 pr-4">Last Mention</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {data.xMentions.topMentioners.map((account) => (
+                  <tr key={`mentioner-${account.userId}`} className="text-slate">
+                    <td className="py-4 pr-4">
+                      {account.handle !== "@unknown" ? (
+                        <a
+                          href={`https://x.com/${account.handle.replace("@", "")}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-semibold text-ink hover:underline"
+                        >
+                          {account.handle}
+                        </a>
+                      ) : (
+                        <span className="font-semibold text-ink">{account.handle}</span>
+                      )}
+                      <p className="muted mt-1 text-xs">{account.name}</p>
+                    </td>
+                    <td className="py-4 pr-4">
+                      {account.verified ? "Yes" : "No"}
+                    </td>
+                    <td className="py-4 pr-4">{formatNumber(account.mentions)}</td>
+                    <td className="py-4 pr-4">{formatNumber(account.engagements)}</td>
+                    <td className="py-4 pr-4">
+                      {account.lastMentionAt ? formatDateShort(account.lastMentionAt) : "n/a"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+      )}
+
+      {visiblePanels.has("x_supporters") && (
+      <section className="mt-10 card p-6">
+        <h2 className="section-title text-2xl">Repeat Supporters & Amplifiers (X API)</h2>
+        <p className="muted mt-2 text-sm">
+          Combines <span className="font-semibold text-ink">retweeted_by</span> and{" "}
+          <span className="font-semibold text-ink">liking_users</span> to rank supporters.
+        </p>
+        <div className="mt-6 grid gap-6 lg:grid-cols-4">
+          <MetricStatCard
+            label="Total Supporters"
+            value={formatCompact(data.xAmplifiers.totalSupporters)}
+          />
+          <MetricStatCard
+            label={`Repeat Supporters (>=${data.xAmplifiers.repeatThreshold})`}
+            value={formatCompact(data.xAmplifiers.repeatSupporters)}
+          />
+          <MetricStatCard
+            label="Verified Supporters"
+            value={formatCompact(data.xAmplifiers.verifiedSupporters)}
+          />
+          <MetricStatCard
+            label="Verified Repeat Supporters"
+            value={formatCompact(data.xAmplifiers.repeatSupportersVerified)}
+            hint={`${data.xAmplifiers.scannedPosts} source posts scanned`}
+          />
+        </div>
+        {data.xAmplifiers.note && (
+          <p className="muted mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+            {data.xAmplifiers.note}
+          </p>
+        )}
+        <div className="mt-5 flex flex-wrap items-center gap-2">
+          <span className="muted text-xs">Filter:</span>
+          <Link
+            href={buildSupporterFilterHref(baseQuery, "all")}
+            className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+              supporterFilter === "all"
+                ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                : "border-slate-300 bg-white text-slate-600"
+            }`}
+          >
+            All
+          </Link>
+          <Link
+            href={buildSupporterFilterHref(baseQuery, "verified")}
+            className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+              supporterFilter === "verified"
+                ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                : "border-slate-300 bg-white text-slate-600"
+            }`}
+          >
+            Verified Only
+          </Link>
+          <a
+            href={supporterCsvHref}
+            download={`x_supporters_${supporterFilter}.csv`}
+            className="ml-auto rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Download CSV
+          </a>
+        </div>
+        {supporterRows.length === 0 ? (
+          <p className="muted mt-6 text-sm">
+            No supporter rows available for the current filter.
+          </p>
+        ) : (
+          <div className="mt-6 overflow-x-auto">
+            <table className="w-full min-w-[840px] text-left text-sm">
+              <thead className="text-xs uppercase tracking-[0.12em] text-slate">
+                <tr>
+                  <th className="pb-3 pr-4">Account</th>
+                  <th className="pb-3 pr-4">Verified</th>
+                  <th className="pb-3 pr-4">Interactions</th>
+                  <th className="pb-3 pr-4">Likes</th>
+                  <th className="pb-3 pr-4">Reposts</th>
+                  <th className="pb-3 pr-4">Supporting Posts</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {supporterRows.map((account) => (
+                  <tr key={`supporter-${account.userId}`} className="text-slate">
+                    <td className="py-4 pr-4">
+                      {account.handle !== "@unknown" ? (
+                        <a
+                          href={`https://x.com/${account.handle.replace("@", "")}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-semibold text-ink hover:underline"
+                        >
+                          {account.handle}
+                        </a>
+                      ) : (
+                        <span className="font-semibold text-ink">{account.handle}</span>
+                      )}
+                      <p className="muted mt-1 text-xs">{account.name}</p>
+                    </td>
+                    <td className="py-4 pr-4">{account.verified ? "Yes" : "No"}</td>
+                    <td className="py-4 pr-4">{formatNumber(account.interactions)}</td>
+                    <td className="py-4 pr-4">{formatNumber(account.likes)}</td>
+                    <td className="py-4 pr-4">{formatNumber(account.reposts)}</td>
+                    <td className="py-4 pr-4">{formatNumber(account.supportingPosts)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+      )}
+
+      {visiblePanels.has("x_quotes") && (
+      <section className="mt-10 card p-6">
+        <h2 className="section-title text-2xl">Quote Post Analytics (X API)</h2>
+        <p className="muted mt-2 text-sm">
+          Tracks who quote-posts your tweets, quote volume by source post, and quote quality trend.
+        </p>
+        <div className="mt-6 grid gap-6 lg:grid-cols-4">
+          <MetricStatCard label="Total Quotes" value={formatCompact(data.xQuotes.totalQuotes)} />
+          <MetricStatCard
+            label="Unique Quote Authors"
+            value={formatCompact(data.xQuotes.uniqueQuoteAuthors)}
+          />
+          <MetricStatCard
+            label="Verified Quote Authors"
+            value={formatCompact(data.xQuotes.verifiedQuoteAuthors)}
+          />
+          <MetricStatCard
+            label="Latest Day Quotes"
+            value={latestQuotesDay ? formatCompact(latestQuotesDay.quotes) : "n/a"}
+            hint={latestQuotesDay ? formatDateShort(latestQuotesDay.date) : "No quote rows"}
+          />
+        </div>
+        {data.xQuotes.note && (
+          <p className="muted mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+            {data.xQuotes.note}
+          </p>
+        )}
+        {data.xQuotes.topQuotedPosts.length === 0 ? (
+          <p className="muted mt-6 text-sm">No quote-post rows in current API window.</p>
+        ) : (
+          <>
+            <div className="mt-6 overflow-x-auto">
+              <table className="w-full min-w-[920px] text-left text-sm">
+                <thead className="text-xs uppercase tracking-[0.12em] text-slate">
+                  <tr>
+                    <th className="pb-3 pr-4">Source Post</th>
+                    <th className="pb-3 pr-4">Quotes</th>
+                    <th className="pb-3 pr-4">Unique Authors</th>
+                    <th className="pb-3 pr-4">Verified Authors</th>
+                    <th className="pb-3 pr-4">Avg Quote Engagement</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {data.xQuotes.topQuotedPosts.map((post) => (
+                    <tr key={`quote-post-${post.sourceTweetId}`} className="text-slate">
+                      <td className="py-4 pr-4">
+                        <a
+                          href={post.sourceLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-semibold text-ink hover:underline"
+                        >
+                          {post.sourceText || "Untitled source post"}
+                        </a>
+                        <p className="muted mt-1 text-xs">
+                          {post.sourceCreatedAt ? formatDateShort(post.sourceCreatedAt) : "n/a"}
+                        </p>
+                      </td>
+                      <td className="py-4 pr-4">{formatNumber(post.quotes)}</td>
+                      <td className="py-4 pr-4">{formatNumber(post.uniqueAuthors)}</td>
+                      <td className="py-4 pr-4">{formatNumber(post.verifiedAuthors)}</td>
+                      <td className="py-4 pr-4">{post.avgQuoteEngagement.toFixed(1)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-6 grid gap-6 lg:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+                <p className="text-sm font-semibold text-ink">Top Quote Authors</p>
+                {data.xQuotes.topQuoteAuthors.length === 0 ? (
+                  <p className="muted mt-3 text-xs">No quote authors in window.</p>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {data.xQuotes.topQuoteAuthors.slice(0, 8).map((author) => (
+                      <div
+                        key={`quote-author-${author.userId}`}
+                        className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                      >
+                        <div>
+                          <p className="text-sm font-semibold text-ink">{author.handle}</p>
+                          <p className="muted text-xs">
+                            {author.quotes} quotes · avg {author.avgEngagement.toFixed(1)} engagements
+                          </p>
+                        </div>
+                        <span className="text-xs text-slate">
+                          {author.verified ? "Verified" : "Unverified"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+                <p className="text-sm font-semibold text-ink">Quote Quality Trend (Daily)</p>
+                {data.xQuotes.daily.length === 0 ? (
+                  <p className="muted mt-3 text-xs">No quote trend rows in window.</p>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {data.xQuotes.daily.slice(-7).map((day) => (
+                      <div
+                        key={`quote-day-${day.date.toISOString()}`}
+                        className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                      >
+                        <p className="text-xs text-ink">{formatDateShort(day.date)}</p>
+                        <p className="text-xs text-slate">
+                          {day.quotes} quotes · avg {day.avgEngagement.toFixed(1)} engagements
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </section>
+      )}
+
+      {visiblePanels.has("x_followers") && (
+      <section className="mt-10 card p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="section-title text-2xl">Follower Snapshot (X API)</h2>
+          <a
+            href={followerSnapshotCsvHref}
+            download="x_follower_snapshots.csv"
+            className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Download Snapshot CSV
+          </a>
+        </div>
+        <p className="muted mt-2 text-sm">
+          Captures follower count on each successful API pull so growth can be tracked over refreshes.
+        </p>
+        <div className="mt-6 grid gap-6 lg:grid-cols-4">
+          <MetricStatCard
+            label="Current Followers"
+            value={
+              data.xFollowers.currentFollowers !== null
+                ? formatCompact(data.xFollowers.currentFollowers)
+                : "n/a"
+            }
+          />
+          <MetricStatCard
+            label="Change vs Previous Snapshot"
+            value={
+              data.xFollowers.changeSincePrevious !== null
+                ? formatSignedNumber(data.xFollowers.changeSincePrevious)
+                : "n/a"
+            }
+          />
+          <MetricStatCard
+            label="Snapshot Count"
+            value={formatCompact(data.xFollowers.snapshots.length)}
+          />
+          <MetricStatCard
+            label="Latest Snapshot"
+            value={latestFollowerSnapshot ? formatDateShort(latestFollowerSnapshot.capturedAt) : "n/a"}
+            hint={latestFollowerSnapshot ? formatDateTimeShort(latestFollowerSnapshot.capturedAt) : "No snapshot stored yet"}
+          />
+        </div>
+      </section>
+      )}
+
+      {visiblePanels.has("x_brand") && (
+      <section className="mt-10 card p-6">
+        <h2 className="section-title text-2xl">Brand Listening (X API)</h2>
+        <p className="muted mt-2 text-sm">
+          Optional keyword/hashtag listening from recent search.
+        </p>
+        {!data.xBrandListening.enabled ? (
+          <p className="muted mt-4 text-sm">
+            Set <span className="font-semibold text-ink">X_BRAND_QUERY</span> in{" "}
+            <span className="font-semibold text-ink">.env.local</span> to enable this panel.
+          </p>
+        ) : (
+          <>
+            <div className="mt-6 grid gap-6 lg:grid-cols-4">
+              <MetricStatCard
+                label="Brand Mentions"
+                value={formatCompact(data.xBrandListening.totalBrandMentions)}
+                hint={data.xBrandListening.query ?? ""}
+              />
+              <MetricStatCard
+                label="Compare Mentions"
+                value={formatCompact(data.xBrandListening.totalCompareMentions)}
+                hint={data.xBrandListening.compareQuery ?? "No compare query"}
+              />
+              <MetricStatCard
+                label="Avg Share of Voice"
+                value={
+                  data.xBrandListening.averageShareOfVoice !== null
+                    ? formatPercent(data.xBrandListening.averageShareOfVoice)
+                    : "n/a"
+                }
+              />
+              <MetricStatCard
+                label="Top Mention Authors"
+                value={formatCompact(data.xBrandListening.topAuthors.length)}
+              />
+            </div>
+            {data.xBrandListening.note && (
+              <p className="muted mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                {data.xBrandListening.note}
+              </p>
+            )}
+            {data.xBrandListening.topAuthors.length > 0 && (
+              <div className="mt-6 overflow-x-auto">
+                <table className="w-full min-w-[700px] text-left text-sm">
+                  <thead className="text-xs uppercase tracking-[0.12em] text-slate">
+                    <tr>
+                      <th className="pb-3 pr-4">Author</th>
+                      <th className="pb-3 pr-4">Verified</th>
+                      <th className="pb-3 pr-4">Mentions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {data.xBrandListening.topAuthors.map((author) => (
+                      <tr key={`brand-author-${author.userId}`} className="text-slate">
+                        <td className="py-4 pr-4">
+                          {author.handle !== "@unknown" ? (
+                            <a
+                              href={`https://x.com/${author.handle.replace("@", "")}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-semibold text-ink hover:underline"
+                            >
+                              {author.handle}
+                            </a>
+                          ) : (
+                            <span className="font-semibold text-ink">{author.handle}</span>
+                          )}
+                          <p className="muted mt-1 text-xs">{author.name}</p>
+                        </td>
+                        <td className="py-4 pr-4">{author.verified ? "Yes" : "No"}</td>
+                        <td className="py-4 pr-4">{formatNumber(author.mentions)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {data.xBrandListening.daily.length > 0 && (
+              <div className="mt-6 overflow-x-auto">
+                <table className="w-full min-w-[700px] text-left text-sm">
+                  <thead className="text-xs uppercase tracking-[0.12em] text-slate">
+                    <tr>
+                      <th className="pb-3 pr-4">Day</th>
+                      <th className="pb-3 pr-4">Brand Mentions</th>
+                      <th className="pb-3 pr-4">Compare Mentions</th>
+                      <th className="pb-3 pr-4">Share of Voice</th>
+                      <th className="pb-3 pr-4">Unique Authors</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {data.xBrandListening.daily.slice(-14).map((day) => (
+                      <tr key={`brand-day-${day.date.toISOString()}`} className="text-slate">
+                        <td className="py-4 pr-4">{formatDateShort(day.date)}</td>
+                        <td className="py-4 pr-4">{formatNumber(day.brandMentions)}</td>
+                        <td className="py-4 pr-4">{formatNumber(day.compareMentions)}</td>
+                        <td className="py-4 pr-4">
+                          {day.shareOfVoice !== null ? formatPercent(day.shareOfVoice) : "n/a"}
+                        </td>
+                        <td className="py-4 pr-4">{formatNumber(day.uniqueAuthors)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+      )}
+
       <section className="mt-12 card p-6">
         <h3 className="section-title text-lg">API Safety & Billing Disclaimer</h3>
         <ul className="muted mt-3 list-disc pl-5 text-sm">
@@ -1328,6 +1904,24 @@ function StatusPill({ label, active }: { label: string; active: boolean }) {
   );
 }
 
+function MetricStatCard({
+  label,
+  value,
+  hint
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+      <p className="muted text-xs">{label}</p>
+      <p className="mt-2 text-2xl font-semibold text-ink">{value}</p>
+      {hint && <p className="muted mt-1 text-xs">{hint}</p>}
+    </div>
+  );
+}
+
 function parseVisiblePanels(raw: string | undefined): Set<MetricPanelKey> {
   const all = new Set(METRIC_PANELS.map((panel) => panel.key));
   if (!raw) return all;
@@ -1386,6 +1980,19 @@ function buildPanelToggleHref(
   return nextQuery.toString() ? `?${nextQuery.toString()}` : "/";
 }
 
+function buildSupporterFilterHref(
+  baseQuery: URLSearchParams,
+  filter: "all" | "verified"
+): string {
+  const nextQuery = new URLSearchParams(baseQuery.toString());
+  if (filter === "all") {
+    nextQuery.delete("supporters");
+  } else {
+    nextQuery.set("supporters", filter);
+  }
+  return nextQuery.toString() ? `?${nextQuery.toString()}` : "/";
+}
+
 function formatPerPost(value: number | null): string {
   if (value === null || Number.isNaN(value)) return "n/a";
   if (Math.abs(value) >= 1000) return formatCompact(value);
@@ -1416,6 +2023,18 @@ function formatDateShort(date: Date): string {
     month: "short",
     day: "numeric",
     year: "numeric"
+  }).format(date);
+}
+
+function formatDateTimeShort(date: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
   }).format(date);
 }
 
@@ -1503,6 +2122,25 @@ function calculateRateMom(
 function perThousand(numerator: number, denominator: number): number | null {
   if (!denominator) return null;
   return (numerator / denominator) * 1000;
+}
+
+function formatSignedNumber(value: number): string {
+  if (value > 0) return `+${formatNumber(value)}`;
+  if (value < 0) return `-${formatNumber(Math.abs(value))}`;
+  return "0";
+}
+
+function buildCsvDownloadHref(rows: string[][]): string {
+  const csv = rows.map((row) => row.map(escapeCsvCell).join(",")).join("\n");
+  return `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
+}
+
+function escapeCsvCell(value: string): string {
+  const normalized = (value ?? "").replace(/\r?\n/g, " ");
+  if (/[",]/.test(normalized)) {
+    return `"${normalized.replace(/"/g, '""')}"`;
+  }
+  return normalized;
 }
 
 function formatDurationMs(ms: number): string {

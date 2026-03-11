@@ -64,6 +64,12 @@ export type Coverage = {
 export type DashboardData = {
   x: PlatformData;
   linkedin: PlatformData;
+  xMentions: XMentionsInsight;
+  xQuotes: XQuotesInsight;
+  xAmplifiers: XAmplifiersInsight;
+  xFollowers: XFollowerInsight;
+  xBrandListening: XBrandListeningInsight;
+  xRefreshGuardrail: XRefreshGuardrail;
   linkedinVisitors: LinkedInVisitorsData;
   linkedinFollowers: LinkedInFollowersData;
   combined: PlatformData;
@@ -154,6 +160,147 @@ export type XPostSummary = {
   reposts: number;
   engagements: number;
   engagementRate: number | null;
+};
+
+export type XMentionDaily = {
+  date: Date;
+  mentions: number;
+  uniqueMentioners: number;
+  verifiedMentioners: number;
+  engagements: number;
+};
+
+export type XMentionAccount = {
+  userId: string;
+  handle: string;
+  name: string;
+  verified: boolean;
+  mentions: number;
+  engagements: number;
+  lastMentionAt: Date | null;
+};
+
+export type XMentionsInsight = {
+  available: boolean;
+  note: string | null;
+  totalMentions: number;
+  uniqueMentioners: number;
+  verifiedMentioners: number;
+  daily: XMentionDaily[];
+  topMentioners: XMentionAccount[];
+};
+
+export type XQuoteDaily = {
+  date: Date;
+  quotes: number;
+  uniqueAuthors: number;
+  avgEngagement: number;
+};
+
+export type XQuotedPost = {
+  sourceTweetId: string;
+  sourceText: string;
+  sourceLink: string;
+  sourceCreatedAt: Date | null;
+  quotes: number;
+  uniqueAuthors: number;
+  verifiedAuthors: number;
+  avgQuoteEngagement: number;
+};
+
+export type XQuoteAuthor = {
+  userId: string;
+  handle: string;
+  name: string;
+  verified: boolean;
+  quotes: number;
+  engagements: number;
+  avgEngagement: number;
+  lastQuoteAt: Date | null;
+};
+
+export type XQuotesInsight = {
+  available: boolean;
+  note: string | null;
+  totalQuotes: number;
+  uniqueQuoteAuthors: number;
+  verifiedQuoteAuthors: number;
+  daily: XQuoteDaily[];
+  topQuotedPosts: XQuotedPost[];
+  topQuoteAuthors: XQuoteAuthor[];
+};
+
+export type XAmplifierAccount = {
+  userId: string;
+  handle: string;
+  name: string;
+  verified: boolean;
+  likes: number;
+  reposts: number;
+  interactions: number;
+  supportingPosts: number;
+};
+
+export type XAmplifiersInsight = {
+  available: boolean;
+  note: string | null;
+  repeatThreshold: number;
+  scannedPosts: number;
+  totalSupporters: number;
+  verifiedSupporters: number;
+  repeatSupporters: number;
+  repeatSupportersVerified: number;
+  leaderboard: XAmplifierAccount[];
+};
+
+export type XFollowerSnapshot = {
+  capturedAt: Date;
+  followers: number;
+};
+
+export type XFollowerInsight = {
+  currentFollowers: number | null;
+  changeSincePrevious: number | null;
+  snapshots: XFollowerSnapshot[];
+};
+
+export type XBrandDaily = {
+  date: Date;
+  brandMentions: number;
+  compareMentions: number;
+  shareOfVoice: number | null;
+  uniqueAuthors: number;
+};
+
+export type XBrandAuthor = {
+  userId: string;
+  handle: string;
+  name: string;
+  verified: boolean;
+  mentions: number;
+};
+
+export type XBrandListeningInsight = {
+  enabled: boolean;
+  note: string | null;
+  query: string | null;
+  compareQuery: string | null;
+  totalBrandMentions: number;
+  totalCompareMentions: number;
+  averageShareOfVoice: number | null;
+  daily: XBrandDaily[];
+  topAuthors: XBrandAuthor[];
+};
+
+export type XRefreshGuardrail = {
+  dayKey: string;
+  cooldownSeconds: number;
+  dailyCap: number;
+  refreshesUsedToday: number;
+  refreshesRemainingToday: number;
+  inFlight: boolean;
+  blockedReason: string | null;
+  nextAllowedAt: Date | null;
 };
 
 export type LinkedInContentTypeSummary = {
@@ -420,6 +567,12 @@ export async function getDashboardData(
   return {
     x: xData,
     linkedin: linkedinData,
+    xMentions: xApiSnapshot.mentions,
+    xQuotes: xApiSnapshot.quotes,
+    xAmplifiers: xApiSnapshot.amplifiers,
+    xFollowers: xApiSnapshot.followers,
+    xBrandListening: xApiSnapshot.brandListening,
+    xRefreshGuardrail: xApiSnapshot.guardrail,
     linkedinVisitors,
     linkedinFollowers,
     combined: combinedData,
@@ -482,6 +635,62 @@ async function loadXApiSnapshotForMode(
       bestTimes: [],
       timeMatrix: [],
       timeOfDayAvailable: false,
+      mentions: {
+        available: false,
+        note: "X API disabled in CSV mode.",
+        totalMentions: 0,
+        uniqueMentioners: 0,
+        verifiedMentioners: 0,
+        daily: [],
+        topMentioners: []
+      },
+      quotes: {
+        available: false,
+        note: "X API disabled in CSV mode.",
+        totalQuotes: 0,
+        uniqueQuoteAuthors: 0,
+        verifiedQuoteAuthors: 0,
+        daily: [],
+        topQuotedPosts: [],
+        topQuoteAuthors: []
+      },
+      amplifiers: {
+        available: false,
+        note: "X API disabled in CSV mode.",
+        repeatThreshold: 5,
+        scannedPosts: 0,
+        totalSupporters: 0,
+        verifiedSupporters: 0,
+        repeatSupporters: 0,
+        repeatSupportersVerified: 0,
+        leaderboard: []
+      },
+      followers: {
+        currentFollowers: null,
+        changeSincePrevious: null,
+        snapshots: []
+      },
+      brandListening: {
+        enabled: false,
+        note: "X API disabled in CSV mode.",
+        query: null,
+        compareQuery: null,
+        totalBrandMentions: 0,
+        totalCompareMentions: 0,
+        averageShareOfVoice: null,
+        daily: [],
+        topAuthors: []
+      },
+      guardrail: {
+        dayKey: "n/a",
+        cooldownSeconds: 0,
+        dailyCap: 0,
+        refreshesUsedToday: 0,
+        refreshesRemainingToday: 0,
+        inFlight: false,
+        blockedReason: null,
+        nextAllowedAt: null
+      },
       source: "disabled",
       fetchedAt: null
     };
@@ -674,12 +883,14 @@ function buildXSourceState(
     };
   }
   if (apiSnapshot.source === "paused") {
+    const blocked = apiSnapshot.guardrail.blockedReason;
     return {
       platform: "x",
       mode: "csv",
       detail: "CSV (API paused)",
-      note:
-        "API auto-pull is paused to control cost. Use Manual API Refresh when you want the latest API data.",
+      note: blocked
+        ? `Manual refresh blocked: ${blocked}`
+        : "API auto-pull is paused to control cost. Use Manual API Refresh when you want the latest API data.",
       lastApiRefreshIso: apiSnapshot.fetchedAt?.toISOString() ?? null
     };
   }
@@ -827,6 +1038,14 @@ function buildSetupChecks(args: {
       detail:
         "API auto-pull is paused to reduce spend. Use Manual API Refresh to pull the latest API snapshot."
     });
+    if (args.xApiSnapshot.guardrail.blockedReason) {
+      checks.push({
+        id: "x-refresh-guardrail",
+        label: "X manual refresh guardrail",
+        status: "warning",
+        detail: args.xApiSnapshot.guardrail.blockedReason
+      });
+    }
   } else if (args.useXApi) {
     checks.push({
       id: "x-connected",
@@ -850,6 +1069,51 @@ function buildSetupChecks(args: {
       status: "warning",
       detail: `API failed, CSV fallback active. ${args.xApiSnapshot.error ?? ""}`.trim()
     });
+  }
+
+  if (hasXCreds && X_DATA_MODE !== "csv") {
+    const remaining = args.xApiSnapshot.guardrail.refreshesRemainingToday;
+    checks.push({
+      id: "x-refresh-budget",
+      label: "X refresh budget",
+      status: remaining === 0 ? "warning" : "info",
+      detail: `Used ${args.xApiSnapshot.guardrail.refreshesUsedToday}/${args.xApiSnapshot.guardrail.dailyCap} manual refreshes today. Remaining: ${remaining}.`
+    });
+  }
+
+  if (X_DATA_MODE !== "csv") {
+    if (args.xApiSnapshot.mentions.note) {
+      checks.push({
+        id: "x-mentions-note",
+        label: "X mentions endpoint",
+        status: "info",
+        detail: args.xApiSnapshot.mentions.note
+      });
+    }
+    if (args.xApiSnapshot.quotes.note) {
+      checks.push({
+        id: "x-quotes-note",
+        label: "X quote endpoint",
+        status: "info",
+        detail: args.xApiSnapshot.quotes.note
+      });
+    }
+    if (args.xApiSnapshot.amplifiers.note) {
+      checks.push({
+        id: "x-amplifiers-note",
+        label: "X supporter endpoint",
+        status: "info",
+        detail: args.xApiSnapshot.amplifiers.note
+      });
+    }
+    if (args.xApiSnapshot.brandListening.note) {
+      checks.push({
+        id: "x-brand-note",
+        label: "X brand listening",
+        status: "info",
+        detail: args.xApiSnapshot.brandListening.note
+      });
+    }
   }
 
   if (LINKEDIN_DATA_MODE === "csv") {

@@ -44,6 +44,10 @@ Refresh behavior:
 
 - `API_REFRESH_MODE=manual` (recommended): no background API pulls; API updates happen only via **Manual API Refresh**.
 - `API_REFRESH_MODE=auto`: API may refresh during normal page loads (cached).
+- X manual refresh guardrails are built in:
+  - cooldown between refreshes
+  - daily refresh cap
+  - in-flight lock
 
 ## Folder structure
 
@@ -166,6 +170,31 @@ Quick valid examples:
 - Check the **Data Quality** section in the dashboard for missing columns.
 - Run `npm run inspect:data` to see the headers detected from each CSV.
 - If your LinkedIn dates are DMY (day/month/year), change `LINKEDIN_DATE_FORMAT` in `src/lib/metrics.ts`.
+
+## X API intelligence panels (v1)
+
+When X API is enabled (`X_DATA_MODE=auto|api` + valid credentials), the dashboard can show:
+
+- Mentions Intelligence
+- Repeat Supporters (with verified-only filter)
+- Quote Analytics
+- Follower Snapshot over refreshes
+- Brand Listening (optional; requires `X_BRAND_QUERY`)
+
+Cost-aware defaults:
+
+- Keep `API_REFRESH_MODE=manual`.
+- Use **Reload CSV** for no-cost refreshes.
+- Use **Manual API Refresh** only when needed.
+- Tune guardrails in `.env.local`:
+  - `X_API_REFRESH_COOLDOWN_SECONDS`
+  - `X_API_DAILY_REFRESH_CAP`
+
+Data export buttons:
+
+- Repeat supporters table has CSV download.
+- Follower snapshot history has CSV download.
+- Use these for long-term records and to reduce unnecessary API refreshes.
 
 ## File name overrides (optional)
 
