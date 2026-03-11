@@ -63,8 +63,12 @@ export default async function HomePage({
   const refreshToken = Array.isArray(params.refresh)
     ? params.refresh[0]
     : params.refresh;
+  const refreshOverrideToken = Array.isArray(params.refresh_override)
+    ? params.refresh_override[0]
+    : params.refresh_override;
   const forceRefresh = shouldForceRefresh(refreshToken);
-  const data = await getDashboardData({ forceRefresh });
+  const forceRefreshOverride = forceRefresh && isRefreshOverride(refreshOverrideToken);
+  const data = await getDashboardData({ forceRefresh, forceRefreshOverride });
   const xSource = data.sourceStates.find((state) => state.platform === "x");
   const linkedInSource = data.sourceStates.find(
     (state) => state.platform === "linkedin"
@@ -1199,7 +1203,7 @@ export default async function HomePage({
           <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
             <p className="muted text-xs">Cooldown</p>
             <p className="mt-2 text-2xl font-semibold text-ink">
-              {data.xRefreshGuardrail.cooldownSeconds}s
+              {formatDurationShort(data.xRefreshGuardrail.cooldownSeconds)}
             </p>
             <p className="muted mt-1 text-xs">Minimum wait after each manual refresh.</p>
           </div>
@@ -2536,6 +2540,7 @@ function buildBaseQuery(
   Object.entries(params).forEach(([key, value]) => {
     if (value === undefined) return;
     if (key === "refresh") return;
+    if (key === "refresh_override") return;
     const normalized = Array.isArray(value) ? value[0] : value;
     if (!normalized) return;
     query.set(key, normalized);
@@ -2648,6 +2653,21 @@ function shouldForceRefresh(token: string | undefined): boolean {
   const numeric = Number(token);
   if (!Number.isFinite(numeric)) return false;
   return Date.now() - numeric <= 30_000;
+}
+
+function isRefreshOverride(token: string | undefined): boolean {
+  if (!token) return false;
+  const normalized = token.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+function formatDurationShort(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0s";
+  if (seconds % 3600 === 0) return `${seconds / 3600}h`;
+  if (seconds >= 3600) return `${(seconds / 3600).toFixed(1)}h`;
+  if (seconds % 60 === 0) return `${seconds / 60}m`;
+  if (seconds >= 60) return `${Math.ceil(seconds / 60)}m`;
+  return `${seconds}s`;
 }
 
 // Count how many daily rows fall into the target month (YYYY-MM).

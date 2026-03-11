@@ -119,6 +119,7 @@ export type XApiSnapshot = {
 
 type LoadOptions = {
   forceRefresh?: boolean;
+  forceRefreshOverride?: boolean;
   manualOnly?: boolean;
 };
 
@@ -130,11 +131,11 @@ const MAX_SEARCH_PAGES = 4;
 const CACHE_SECONDS = clampNumber(process.env.X_API_CACHE_SECONDS, 900, 30, 86400);
 const REFRESH_COOLDOWN_SECONDS = clampNumber(
   process.env.X_API_REFRESH_COOLDOWN_SECONDS,
-  120,
+  10_800,
   0,
   86_400
 );
-const REFRESH_DAILY_CAP = clampNumber(process.env.X_API_DAILY_REFRESH_CAP, 15, 1, 500);
+const REFRESH_DAILY_CAP = clampNumber(process.env.X_API_DAILY_REFRESH_CAP, 2, 1, 500);
 const QUOTE_SOURCE_POST_LIMIT = clampNumber(
   process.env.X_QUOTE_SOURCE_POST_LIMIT,
   12,
@@ -256,7 +257,10 @@ export async function loadXApiSnapshot(options: LoadOptions = {}): Promise<XApiS
   }
 
   if (options.forceRefresh) {
-    const blockedReason = getGuardrailBlockReason(state);
+    const blockedReason = getGuardrailBlockReason(
+      state,
+      options.forceRefreshOverride === true
+    );
     if (blockedReason) {
       const fallback =
         snapshotCache?.value ??
@@ -1398,9 +1402,16 @@ function rotateRefreshUsageDay(state: PersistedXState): void {
   state.refreshUsage.nextAllowedAtMs = 0;
 }
 
-function getGuardrailBlockReason(state: PersistedXState): string | null {
+function getGuardrailBlockReason(
+  state: PersistedXState,
+  forceRefreshOverride = false
+): string | null {
   if (refreshInFlight) {
     return "Refresh already in progress. Wait for current API run to finish.";
+  }
+  // Manual override bypasses cooldown + daily cap, but still respects in-flight lock.
+  if (forceRefreshOverride) {
+    return null;
   }
   if (state.refreshUsage.used >= REFRESH_DAILY_CAP) {
     return `Daily refresh cap reached (${REFRESH_DAILY_CAP}/${REFRESH_DAILY_CAP}).`;

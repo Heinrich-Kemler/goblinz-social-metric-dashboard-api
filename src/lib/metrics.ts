@@ -517,6 +517,7 @@ export type SetupCheck = {
 
 type DashboardOptions = {
   forceRefresh?: boolean;
+  forceRefreshOverride?: boolean;
 };
 
 type DataMode = "auto" | "api" | "csv";
@@ -564,7 +565,10 @@ export async function getDashboardData(
   const [xPostsData, linkedInPostsData, xApiSnapshot, linkedInApiSnapshot] = await Promise.all([
     loadXPostsData(),
     loadLinkedInPostsData(),
-    loadXApiSnapshotForMode({ forceRefresh: options.forceRefresh }),
+    loadXApiSnapshotForMode({
+      forceRefresh: options.forceRefresh,
+      forceRefreshOverride: options.forceRefreshOverride
+    }),
     loadLinkedInApiSnapshotForMode({ forceRefresh: options.forceRefresh })
   ]);
   const [
@@ -867,7 +871,8 @@ async function loadXApiSnapshotForMode(
     };
   }
   return loadXApiSnapshot({
-    ...options,
+    forceRefresh: options.forceRefresh,
+    forceRefreshOverride: options.forceRefreshOverride,
     manualOnly: API_REFRESH_MODE === "manual"
   });
 }
@@ -889,7 +894,7 @@ async function loadLinkedInApiSnapshotForMode(
     };
   }
   return loadLinkedInApiSnapshot({
-    ...options,
+    forceRefresh: options.forceRefresh,
     manualOnly: API_REFRESH_MODE === "manual"
   });
 }

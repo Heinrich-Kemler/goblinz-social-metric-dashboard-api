@@ -36,5 +36,7 @@ Legend:
 ## Cost-safe defaults
 
 - Keep `API_REFRESH_MODE=manual`
+- Keep guardrails at `X_API_DAILY_REFRESH_CAP=2` and `X_API_REFRESH_COOLDOWN_SECONDS=10800` (3h)
 - Use `Reload CSV` for local-only refreshes
 - Use `Manual API Refresh` only when you explicitly want fresh API data
+- Use `Override Refresh` only when the warning confirms it's worth extra credit spend

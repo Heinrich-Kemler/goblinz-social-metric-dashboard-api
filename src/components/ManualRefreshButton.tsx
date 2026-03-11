@@ -18,6 +18,26 @@ export function ManualRefreshButton() {
     startTransition(() => {
       const params = new URLSearchParams(searchParams.toString());
       params.set("refresh", String(Date.now()));
+      params.delete("refresh_override");
+      router.push(`${pathname}?${params.toString()}`);
+      router.refresh();
+    });
+  };
+
+  const onApiRefreshOverride = () => {
+    const approved = window.confirm(
+      "Override refresh bypasses cooldown/daily cap and can consume extra paid credits. Continue?"
+    );
+    if (!approved) return;
+    const confirmedRisk = window.confirm(
+      "Warning: this may use credits with little or no meaningful new data and can waste money. Run override anyway?"
+    );
+    if (!confirmedRisk) return;
+
+    startTransition(() => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("refresh", String(Date.now()));
+      params.set("refresh_override", "1");
       router.push(`${pathname}?${params.toString()}`);
       router.refresh();
     });
@@ -27,6 +47,7 @@ export function ManualRefreshButton() {
     startTransition(() => {
       const params = new URLSearchParams(searchParams.toString());
       params.delete("refresh");
+      params.delete("refresh_override");
       router.push(params.toString() ? `${pathname}?${params.toString()}` : pathname);
       router.refresh();
     });
@@ -49,6 +70,14 @@ export function ManualRefreshButton() {
         className="rounded-full border border-slate-300 bg-ink px-4 py-2 text-xs font-semibold text-white transition hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {isPending ? "Refreshing..." : "Manual API Refresh"}
+      </button>
+      <button
+        type="button"
+        onClick={onApiRefreshOverride}
+        disabled={isPending}
+        className="rounded-full border border-rose-300 bg-rose-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {isPending ? "Refreshing..." : "Override Refresh"}
       </button>
     </div>
   );

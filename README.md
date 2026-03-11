@@ -76,8 +76,8 @@ Optional:
 
 - `X_API_LOOKBACK_DAYS` (default `30`, bounded to `7..30`)
 - `X_API_CACHE_SECONDS` (default `900`)
-- `X_API_REFRESH_COOLDOWN_SECONDS` (default `120`)
-- `X_API_DAILY_REFRESH_CAP` (default `15`)
+- `X_API_REFRESH_COOLDOWN_SECONDS` (default `10800` = 3h)
+- `X_API_DAILY_REFRESH_CAP` (default `2`)
 - `X_MENTIONS_LOOKBACK_DAYS` (default `30`, one-month mentions window)
 - `X_MENTIONS_SPIKE_RATIO_THRESHOLD` (default `1.8`)
 - `X_MENTIONS_SPIKE_DELTA_THRESHOLD` (default `5`)
@@ -189,6 +189,7 @@ Subfolders are supported under `Data/raw` (recursive scan), for example:
 - API responses are cached server-side (15 minutes by default when auto refresh is enabled).
 - Use the **Manual API Refresh** button when you want a fresh pull now.
 - The refresh button shows a confirmation because API pulls may use paid credits.
+- **Override Refresh** bypasses cooldown/daily cap and shows an extra warning prompt before running.
 - Manual refresh guardrails are built in for X:
   - Cooldown between refreshes (`X_API_REFRESH_COOLDOWN_SECONDS`)
   - Daily cap (`X_API_DAILY_REFRESH_CAP`)
@@ -232,8 +233,8 @@ Subfolders are supported under `Data/raw` (recursive scan), for example:
 
 ## Release notes
 
-- Current stable tag: `v1.0.0`
-- Detailed notes: `docs/releases/v1.0.0.md`
+- Current stable tag: `v1.1.0`
+- Detailed notes: `docs/releases/v1.1.0.md`
 
 ## Current v1 limits
 
