@@ -16,11 +16,14 @@ Legend:
 | Best times to post (X) | Yes (if post timestamps exist) | Yes | Uses day+hour where timestamps exist |
 | Best times to post (LinkedIn) | Yes (if post timestamps exist) | Partial | API adapter does not yet provide post-level times |
 | Best day+hour matrix | Yes (if timestamps exist) | Yes for X, partial for LinkedIn | Heatmap by weekday and UTC hour |
+| Best day+hour by content type | Yes (LinkedIn posts CSV) | Yes (X inferred + LinkedIn CSV) | Picks best slot for each content format |
 | Video watch time (X) | Yes (`x_video_overview`) | No | API adapter v1 does not include watch-time endpoints |
 | API freshness chips | No | Yes | Shows last successful API fetch time |
 | Persistent API history (SQLite) | No | Yes | X API snapshots are stored locally in `Data/state/metrics.db` and reused after restart |
 | X refresh guardrails panel | No | Yes | Shows cooldown, daily cap, in-flight lock status |
 | Mentions intelligence panel | No | Yes | Uses `users/:id/mentions` for daily mentions + top mentioners |
+| Mention source mix | No | Yes | Splits mentions by reply-style/link/hashtag/plain patterns |
+| Topic/hashtag leaderboard | No | Yes | Top repeated mention terms (`#hashtags` + keywords) |
 | Mentions velocity + spike detection | No | Yes | 7-day rolling mention baseline + spike ratio/delta detection |
 | Repeat supporters panel | No | Yes | Uses `retweeted_by` + `liking_users`; includes verified filter + weekly retention estimate |
 | Supporter cohort retention | No | Yes | Cohorts supporters by first-seen week and tracks W+0..W+n retention |

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type {
   BestTimeSlot,
+  ContentTypeBestWindow,
   DailyMetric,
   XAmplifierAccount,
   XAmplifierConcentrationPoint,
@@ -106,6 +107,7 @@ export type XApiSnapshot = {
   daily: DailyMetric[];
   topPosts: XPostSummary[];
   bestTimes: BestTimeSlot[];
+  bestByContentType: ContentTypeBestWindow[];
   timeMatrix: BestTimeSlot[];
   timeOfDayAvailable: boolean;
   mentions: XMentionsInsight;
@@ -336,6 +338,7 @@ export async function loadXApiSnapshot(options: LoadOptions = {}): Promise<XApiS
     const daily = aggregateDaily(tweets);
     const timeMatrix = buildTimeMatrix(tweets);
     const bestTimes = rankTopSlots(timeMatrix);
+    const bestByContentType = buildBestByContentTypeFromTweets(tweets);
     const engagementCohort = buildEngagementCohort(tweets, new Date());
     const topPosts = tweets
       .map(toPostSummary)
@@ -346,6 +349,7 @@ export async function loadXApiSnapshot(options: LoadOptions = {}): Promise<XApiS
       daily,
       topPosts,
       bestTimes,
+      bestByContentType,
       timeMatrix,
       timeOfDayAvailable: true,
       mentions: mentionsOutcome,
@@ -414,7 +418,7 @@ async function loadMentionsInsight(
   const start = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
   const params = new URLSearchParams({
     max_results: "100",
-    "tweet.fields": "created_at,author_id,public_metrics",
+    "tweet.fields": "created_at,author_id,public_metrics,text",
     expansions: "author_id",
     "user.fields": "id,name,username,verified",
     start_time: start
@@ -447,6 +451,9 @@ async function loadMentionsInsight(
         lastMentionAt: Date | null;
       }
     >();
+    const sourceMixCounter = new Map<string, number>();
+    const hashtagTerms = new Map<string, number>();
+    const keywordTerms = new Map<string, number>();
 
     for (const tweet of tweets) {
       const day = parseXDate(tweet.created_at);
@@ -496,6 +503,10 @@ async function loadMentionsInsight(
       }
       existing.profile = author;
       byAccount.set(authorId, existing);
+
+      const sourceLabel = classifyMentionSource(tweet.text ?? "");
+      sourceMixCounter.set(sourceLabel, (sourceMixCounter.get(sourceLabel) ?? 0) + 1);
+      extractMentionTerms(tweet.text ?? "", hashtagTerms, keywordTerms);
     }
 
     const daily: XMentionDaily[] = Array.from(byDay.values())
@@ -529,6 +540,8 @@ async function loadMentionsInsight(
     ).length;
     const velocity = buildMentionsVelocity(daily);
     const spikes = detectMentionSpikes(velocity);
+    const sourceMix = buildMentionSourceMix(sourceMixCounter, tweets.length);
+    const topicLeaderboard = buildTopicLeaderboard(hashtagTerms, keywordTerms);
 
     return {
       available: true,
@@ -539,6 +552,8 @@ async function loadMentionsInsight(
       daily,
       velocity,
       spikes,
+      sourceMix,
+      topicLeaderboard,
       topMentioners
     };
   } catch (error) {
@@ -1324,6 +1339,176 @@ function rankTopSlots(slots: BestTimeSlot[]): BestTimeSlot[] {
     .slice(0, 5);
 }
 
+function buildBestByContentTypeFromTweets(tweets: XApiTweet[]): ContentTypeBestWindow[] {
+  const typeSlotMaps = new Map<string, Map<string, BestTimeSlot>>();
+
+  for (const tweet of tweets) {
+    const createdAt = parseIsoDate(tweet.created_at);
+    if (!createdAt) continue;
+
+    const impressions =
+      tweet.non_public_metrics?.impression_count ??
+      tweet.organic_metrics?.impression_count ??
+      tweet.public_metrics?.impression_count ??
+      0;
+    const engagements =
+      (tweet.public_metrics?.like_count ?? 0) +
+      (tweet.public_metrics?.reply_count ?? 0) +
+      (tweet.public_metrics?.retweet_count ?? 0) +
+      (tweet.public_metrics?.quote_count ?? 0);
+    const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][
+      createdAt.getUTCDay()
+    ];
+    const hour = createdAt.getUTCHours();
+    const label = `${day} ${String(hour).padStart(2, "0")}:00`;
+    const slotKey = `${day}-${hour}`;
+    const contentType = inferXTweetType(tweet.text ?? "");
+
+    const perTypeMap = typeSlotMaps.get(contentType) ?? new Map<string, BestTimeSlot>();
+    const slot =
+      perTypeMap.get(slotKey) ?? {
+        label,
+        day,
+        hour,
+        posts: 0,
+        impressions: 0,
+        engagements: 0,
+        engagementRate: null
+      };
+    slot.posts += 1;
+    slot.impressions += impressions;
+    slot.engagements += engagements;
+    slot.engagementRate = slot.impressions ? slot.engagements / slot.impressions : null;
+    perTypeMap.set(slotKey, slot);
+    typeSlotMaps.set(contentType, perTypeMap);
+  }
+
+  const rows: ContentTypeBestWindow[] = [];
+  for (const [contentType, slotMap] of typeSlotMaps.entries()) {
+    const best = rankTopSlots(Array.from(slotMap.values()))[0];
+    if (!best) continue;
+    rows.push({
+      platform: "x",
+      contentType,
+      label: best.label,
+      day: best.day,
+      hour: best.hour,
+      posts: best.posts,
+      engagementRate: best.engagementRate
+    });
+  }
+
+  return rows
+    .filter((row) => row.posts > 0)
+    .sort((a, b) => (b.engagementRate ?? -1) - (a.engagementRate ?? -1))
+    .slice(0, 12);
+}
+
+function inferXTweetType(text: string): string {
+  const normalized = text.toLowerCase();
+  if (/https?:\/\//.test(normalized)) return "Link";
+  const hashtags = normalized.match(/#[a-z0-9_]+/g) ?? [];
+  if (hashtags.length >= 2) return "Hashtag-led";
+  if (hashtags.length === 1) return "Hashtag";
+  if (normalized.length > 0 && normalized.length <= 90) return "Short text";
+  return "Text";
+}
+
+function classifyMentionSource(text: string): string {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return "Unknown";
+  if (normalized.startsWith("@")) return "Reply-style";
+  if (/https?:\/\//.test(normalized)) return "Link mention";
+  if (/#[a-z0-9_]+/.test(normalized)) return "Hashtag mention";
+  return "Plain mention";
+}
+
+function extractMentionTerms(
+  text: string,
+  hashtags: Map<string, number>,
+  keywords: Map<string, number>
+): void {
+  const normalized = text.toLowerCase();
+  const hashtagMatches = normalized.match(/#[a-z0-9_]{2,40}/g) ?? [];
+  for (const match of hashtagMatches) {
+    hashtags.set(match, (hashtags.get(match) ?? 0) + 1);
+  }
+
+  const clean = normalized
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/#[a-z0-9_]+/g, " ")
+    .replace(/@[a-z0-9_]+/g, " ");
+  const stopwords = new Set([
+    "the",
+    "and",
+    "for",
+    "with",
+    "this",
+    "that",
+    "from",
+    "your",
+    "you",
+    "are",
+    "was",
+    "have",
+    "has",
+    "will",
+    "about",
+    "into",
+    "just",
+    "can",
+    "our",
+    "its",
+    "out",
+    "how",
+    "not"
+  ]);
+  const tokens = clean.split(/[^a-z0-9]+/g).filter(Boolean);
+  for (const token of tokens) {
+    if (token.length < 3) continue;
+    if (/^\d+$/.test(token)) continue;
+    if (stopwords.has(token)) continue;
+    keywords.set(token, (keywords.get(token) ?? 0) + 1);
+  }
+}
+
+function buildMentionSourceMix(
+  counter: Map<string, number>,
+  totalMentions: number
+): XMentionsInsight["sourceMix"] {
+  if (totalMentions <= 0) return [];
+  return Array.from(counter.entries())
+    .map(([label, mentions]) => ({
+      label,
+      mentions,
+      share: mentions / totalMentions
+    }))
+    .sort((a, b) => b.mentions - a.mentions)
+    .slice(0, 6);
+}
+
+function buildTopicLeaderboard(
+  hashtags: Map<string, number>,
+  keywords: Map<string, number>
+): XMentionsInsight["topicLeaderboard"] {
+  const rows: XMentionsInsight["topicLeaderboard"] = [];
+
+  hashtags.forEach((mentions, term) => {
+    rows.push({ term, mentions, kind: "hashtag" });
+  });
+  keywords.forEach((mentions, term) => {
+    rows.push({ term, mentions, kind: "keyword" });
+  });
+
+  return rows
+    .sort((a, b) => {
+      if (b.mentions !== a.mentions) return b.mentions - a.mentions;
+      if (a.kind !== b.kind) return a.kind === "hashtag" ? -1 : 1;
+      return a.term.localeCompare(b.term);
+    })
+    .slice(0, 12);
+}
+
 function selectSourceTweets(tweets: XApiTweet[], limit: number): XApiTweet[] {
   return [...tweets]
     .sort((a, b) => {
@@ -1771,6 +1956,7 @@ function emptySnapshot(source: "disabled" | "error" | "paused"): XApiSnapshot {
     daily: [],
     topPosts: [],
     bestTimes: [],
+    bestByContentType: [],
     timeMatrix: [],
     timeOfDayAvailable: false,
     mentions: emptyMentionsInsight(),
@@ -1805,6 +1991,8 @@ function emptyMentionsInsight(): XMentionsInsight {
     daily: [],
     velocity: [],
     spikes: [],
+    sourceMix: [],
+    topicLeaderboard: [],
     topMentioners: []
   };
 }

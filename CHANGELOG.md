@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-03-12
+
+### Added
+- Mentions Intelligence upgrades:
+  - mention source mix breakdown
+  - topic/hashtag leaderboard from mention text
+- Best day+hour by content type panel:
+  - X content-type windows (inferred from tweet text/link patterns)
+  - LinkedIn content-type windows (from post export labels + timestamps)
+
+### Benefits
+- Faster editorial decisions using topic traction signals.
+- Better posting-time strategy per content format, not just account-level averages.
+
 ## [1.3.0] - 2026-03-11
 
 ### Added

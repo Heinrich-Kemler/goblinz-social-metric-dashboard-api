@@ -81,12 +81,14 @@ export type DashboardData = {
   previousMonthLabel: string;
   xTopPosts: XPostSummary[];
   xBestTimes: BestTimeSlot[];
+  xBestByContentType: ContentTypeBestWindow[];
   xTimeMatrix: BestTimeSlot[];
   xTimeOfDayAvailable: boolean;
   xPerPostStats: PerPostStats;
   linkedinTopPosts: LinkedInPostSummary[];
   linkedinTopPostsByRate: LinkedInPostSummary[];
   linkedinContentTypes: LinkedInContentTypeSummary[];
+  linkedinBestByContentType: ContentTypeBestWindow[];
   linkedinTimeMatrix: BestTimeSlot[];
   linkedinPerPostStats: PerPostStats;
   dayOfWeek: DayOfWeekSummary[];
@@ -206,7 +208,21 @@ export type XMentionsInsight = {
   daily: XMentionDaily[];
   velocity: XMentionVelocityPoint[];
   spikes: XMentionSpike[];
+  sourceMix: XMentionSourceMixRow[];
+  topicLeaderboard: XTopicLeaderboardRow[];
   topMentioners: XMentionAccount[];
+};
+
+export type XMentionSourceMixRow = {
+  label: string;
+  mentions: number;
+  share: number;
+};
+
+export type XTopicLeaderboardRow = {
+  term: string;
+  mentions: number;
+  kind: "hashtag" | "keyword";
 };
 
 export type XQuoteDaily = {
@@ -453,6 +469,16 @@ export type BestTimeSlot = {
   engagementRate: number | null;
 };
 
+export type ContentTypeBestWindow = {
+  platform: Platform;
+  contentType: string;
+  label: string;
+  day: string;
+  hour: number | null;
+  posts: number;
+  engagementRate: number | null;
+};
+
 export type PerPostStats = {
   averagePerPost: number | null;
   medianPerPost: number | null;
@@ -607,6 +633,11 @@ export async function getDashboardData(
     csvBestTimes: xPostsData.bestTimes,
     apiBestTimes: xApiSnapshot.bestTimes
   });
+  const xBestByContentType = selectBestByContentType({
+    mode: X_DATA_MODE,
+    csvBestByContentType: xPostsData.bestByContentType,
+    apiBestByContentType: xApiSnapshot.bestByContentType ?? []
+  });
   const xTimeMatrix = selectTimeMatrix({
     mode: X_DATA_MODE,
     csvTimeMatrix: xPostsData.timeMatrix,
@@ -632,6 +663,8 @@ export async function getDashboardData(
     csvBestTimes: linkedInPostsData.bestTimes,
     apiBestTimes: linkedInApiSnapshot.bestTimes
   });
+  const linkedinBestByContentType =
+    linkedInPostsData.bestByContentType;
   const linkedinTimeMatrix = selectTimeMatrix({
     mode: LINKEDIN_DATA_MODE,
     csvTimeMatrix: linkedInPostsData.timeMatrix,
@@ -713,12 +746,14 @@ export async function getDashboardData(
     previousMonthLabel,
     xTopPosts,
     xBestTimes,
+    xBestByContentType,
     xTimeMatrix,
     xTimeOfDayAvailable,
     xPerPostStats,
     linkedinTopPosts,
     linkedinTopPostsByRate,
     linkedinContentTypes,
+    linkedinBestByContentType,
     linkedinTimeMatrix,
     linkedinPerPostStats,
     dayOfWeek,
@@ -764,6 +799,7 @@ async function loadXApiSnapshotForMode(
       daily: [],
       topPosts: [],
       bestTimes: [],
+      bestByContentType: [],
       timeMatrix: [],
       timeOfDayAvailable: false,
       mentions: {
@@ -775,6 +811,8 @@ async function loadXApiSnapshotForMode(
         daily: [],
         velocity: [],
         spikes: [],
+        sourceMix: [],
+        topicLeaderboard: [],
         topMentioners: []
       },
       quotes: {
@@ -979,6 +1017,46 @@ function selectBestTimes(args: {
   return rankTopTimeSlots(
     mergeTimeMatrixSlots([...args.csvBestTimes, ...args.apiBestTimes])
   );
+}
+
+function selectBestByContentType(args: {
+  mode: DataMode;
+  csvBestByContentType: ContentTypeBestWindow[];
+  apiBestByContentType: ContentTypeBestWindow[];
+}): ContentTypeBestWindow[] {
+  if (args.mode === "csv") {
+    return args.csvBestByContentType;
+  }
+
+  if (args.mode === "api") {
+    return args.apiBestByContentType.length > 0
+      ? args.apiBestByContentType
+      : args.csvBestByContentType;
+  }
+
+  if (args.apiBestByContentType.length === 0) {
+    return args.csvBestByContentType;
+  }
+
+  const merged = new Map<string, ContentTypeBestWindow>();
+  for (const row of [...args.csvBestByContentType, ...args.apiBestByContentType]) {
+    const key = `${row.platform}:${row.contentType.toLowerCase()}`;
+    const existing = merged.get(key);
+    if (
+      !existing ||
+      (row.engagementRate ?? -1) > (existing.engagementRate ?? -1) ||
+      ((row.engagementRate ?? -1) === (existing.engagementRate ?? -1) &&
+        row.posts > existing.posts)
+    ) {
+      merged.set(key, row);
+    }
+  }
+
+  return Array.from(merged.values()).sort((a, b) => {
+    const rateDiff = (b.engagementRate ?? -1) - (a.engagementRate ?? -1);
+    if (rateDiff !== 0) return rateDiff;
+    return b.posts - a.posts;
+  });
 }
 
 function selectTimeMatrix(args: {
@@ -2420,11 +2498,13 @@ async function loadXVideoOverviewByDate(): Promise<{
 async function loadXPostsData(): Promise<{
   topPosts: XPostSummary[];
   bestTimes: BestTimeSlot[];
+  bestByContentType: ContentTypeBestWindow[];
   timeMatrix: BestTimeSlot[];
   timeOfDayAvailable: boolean;
   validation: CsvValidation;
 }> {
   const timeSlotMap = new Map<string, BestTimeSlot>();
+  const typeSlotMaps = new Map<string, Map<string, BestTimeSlot>>();
   let timeOfDayAvailable = false;
   const files = await resolveXPostFiles();
   const sourceGroup = await readCsvGroupWithFallback(files, X_POSTS_CSV_SAMPLE);
@@ -2453,7 +2533,8 @@ async function loadXPostsData(): Promise<{
       { label: "Reposts", fields: ["Reposts", "Retweets", "Retweets (organic)"] },
       { label: "Engagements", fields: ["Engagements"] },
       { label: "Engagement rate", fields: ["Engagement rate"] },
-      { label: "Created at", fields: ["Time", "time", "Created at", "Date"] }
+      { label: "Created at", fields: ["Time", "time", "Created at", "Date"] },
+      { label: "Content type", fields: ["Content Type", "Post type", "Media Type", "Type"] }
     ]
   });
 
@@ -2497,6 +2578,12 @@ async function loadXPostsData(): Promise<{
 
       if (!text && !link) return null;
 
+      const rawContentType = String(
+        pickField(row, ["Content Type", "Post type", "Media Type", "Type"])
+      ).trim();
+      const contentType =
+        rawContentType || inferXContentType({ text: sanitizeTitle(text), link });
+
       return {
         text: sanitizeTitle(text),
         link,
@@ -2507,12 +2594,13 @@ async function loadXPostsData(): Promise<{
         reposts,
         engagements,
         engagementRate,
-        hasTime
-      } as XPostSummary & { hasTime: boolean };
+        hasTime,
+        contentType
+      } as XPostSummary & { hasTime: boolean; contentType: string };
     })
-    .filter(Boolean) as (XPostSummary & { hasTime: boolean })[];
+    .filter(Boolean) as (XPostSummary & { hasTime: boolean; contentType: string })[];
 
-  const deduped = new Map<string, XPostSummary & { hasTime: boolean }>();
+  const deduped = new Map<string, XPostSummary & { hasTime: boolean; contentType: string }>();
   posts.forEach((post) => {
     const key = post.link || `${post.text}-${post.createdAt?.toISOString() ?? ""}`;
     const existing = deduped.get(key);
@@ -2549,6 +2637,25 @@ async function loadXPostsData(): Promise<{
     slot.engagements += post.engagements || post.likes + post.replies + post.reposts;
     slot.engagementRate = slot.impressions ? slot.engagements / slot.impressions : null;
     timeSlotMap.set(slotKey, slot);
+
+    const typeKey = post.contentType || "Unknown";
+    const perTypeMap = typeSlotMaps.get(typeKey) ?? new Map<string, BestTimeSlot>();
+    const perTypeSlot =
+      perTypeMap.get(slotKey) ?? {
+        ...slot,
+        posts: 0,
+        impressions: 0,
+        engagements: 0,
+        engagementRate: null
+      };
+    perTypeSlot.posts += 1;
+    perTypeSlot.impressions += post.impressions;
+    perTypeSlot.engagements += post.engagements || post.likes + post.replies + post.reposts;
+    perTypeSlot.engagementRate = perTypeSlot.impressions
+      ? perTypeSlot.engagements / perTypeSlot.impressions
+      : null;
+    perTypeMap.set(slotKey, perTypeSlot);
+    typeSlotMaps.set(typeKey, perTypeMap);
   });
 
   const topPosts = uniquePosts
@@ -2558,8 +2665,19 @@ async function loadXPostsData(): Promise<{
 
   const timeMatrix = mergeTimeMatrixSlots(Array.from(timeSlotMap.values()));
   const bestTimes = rankTopTimeSlots(timeMatrix);
+  const bestByContentType = buildBestByContentType({
+    platform: "x",
+    typeSlotMaps
+  });
 
-  return { topPosts, bestTimes, timeMatrix, timeOfDayAvailable, validation };
+  return {
+    topPosts,
+    bestTimes,
+    bestByContentType,
+    timeMatrix,
+    timeOfDayAvailable,
+    validation
+  };
 }
 
 function calculateMomGrowth(monthly: MonthSummary[]): {
@@ -2651,6 +2769,7 @@ async function loadLinkedInPostsData(): Promise<{
   topPostsByRate: LinkedInPostSummary[];
   contentTypes: LinkedInContentTypeSummary[];
   bestTimes: BestTimeSlot[];
+  bestByContentType: ContentTypeBestWindow[];
   timeMatrix: BestTimeSlot[];
   timeOfDayAvailable: boolean;
   validation: CsvValidation;
@@ -2658,6 +2777,7 @@ async function loadLinkedInPostsData(): Promise<{
   const postsByDate = new Map<string, number>();
   const contentTypeMap = new Map<string, LinkedInContentTypeSummary>();
   const timeSlotMap = new Map<string, BestTimeSlot>();
+  const typeSlotMaps = new Map<string, Map<string, BestTimeSlot>>();
   let timeOfDayAvailable = false;
   const files = await resolveLinkedInPostsFiles();
   const sourceGroup = await readCsvGroupWithFallback(
@@ -2796,6 +2916,24 @@ async function loadLinkedInPostsData(): Promise<{
       ? slot.engagements / slot.impressions
       : null;
     timeSlotMap.set(slotKey, slot);
+
+    const perTypeMap = typeSlotMaps.get(contentType) ?? new Map<string, BestTimeSlot>();
+    const perTypeSlot =
+      perTypeMap.get(slotKey) ?? {
+        ...slot,
+        posts: 0,
+        impressions: 0,
+        engagements: 0,
+        engagementRate: null
+      };
+    perTypeSlot.posts += 1;
+    perTypeSlot.impressions += post.impressions;
+    perTypeSlot.engagements += post.likes + post.comments + post.reposts;
+    perTypeSlot.engagementRate = perTypeSlot.impressions
+      ? perTypeSlot.engagements / perTypeSlot.impressions
+      : null;
+    perTypeMap.set(slotKey, perTypeSlot);
+    typeSlotMaps.set(contentType, perTypeMap);
   });
 
   const uniqueSummaries = uniquePosts.map(({ hasTime, ...summary }) => summary);
@@ -2822,6 +2960,10 @@ async function loadLinkedInPostsData(): Promise<{
 
   const timeMatrix = mergeTimeMatrixSlots(Array.from(timeSlotMap.values()));
   const bestTimes = rankTopTimeSlots(timeMatrix);
+  const bestByContentType = buildBestByContentType({
+    platform: "linkedin",
+    typeSlotMaps
+  });
 
   return {
     postsByDate,
@@ -2829,10 +2971,56 @@ async function loadLinkedInPostsData(): Promise<{
     topPostsByRate: sortedTopPostsByRate,
     contentTypes,
     bestTimes,
+    bestByContentType,
     timeMatrix,
     timeOfDayAvailable,
     validation
   };
+}
+
+function inferXContentType(args: { text: string; link: string }): string {
+  const textLower = args.text.toLowerCase();
+  if (args.link || /https?:\/\//.test(textLower)) {
+    return "Link";
+  }
+  const hashtagMatches = textLower.match(/#[a-z0-9_]+/g) ?? [];
+  if (hashtagMatches.length >= 2) {
+    return "Hashtag-led";
+  }
+  if (hashtagMatches.length === 1) {
+    return "Hashtag";
+  }
+  return "Text";
+}
+
+function buildBestByContentType(args: {
+  platform: Platform;
+  typeSlotMaps: Map<string, Map<string, BestTimeSlot>>;
+}): ContentTypeBestWindow[] {
+  const rows: ContentTypeBestWindow[] = [];
+  for (const [contentType, slotMap] of args.typeSlotMaps.entries()) {
+    const ranked = rankTopTimeSlots(mergeTimeMatrixSlots(Array.from(slotMap.values())));
+    const best = ranked[0];
+    if (!best) continue;
+    rows.push({
+      platform: args.platform,
+      contentType,
+      label: best.label,
+      day: best.day,
+      hour: best.hour,
+      posts: best.posts,
+      engagementRate: best.engagementRate
+    });
+  }
+
+  return rows
+    .filter((row) => row.posts > 0)
+    .sort((a, b) => {
+      const rateDiff = (b.engagementRate ?? -1) - (a.engagementRate ?? -1);
+      if (rateDiff !== 0) return rateDiff;
+      return b.posts - a.posts;
+    })
+    .slice(0, 12);
 }
 
 function toMonthKey(date: Date): string {

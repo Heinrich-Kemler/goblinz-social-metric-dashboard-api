@@ -244,8 +244,10 @@ Backups include SHA-256 checksums in `manifest.json`; restore verifies checksums
   - Recent data enrichment on top of CSV history
   - API freshness timestamps in the hero chips
   - X best day+hour from API tweet timestamps (or CSV post timestamps)
+  - X mentions source mix + topic/hashtag leaderboard
   - Per-post engagement stats (average + median)
   - Day/hour matrix view per platform
+  - Best day+hour by content type (X + LinkedIn)
   - X Visual Lab: mentions velocity spikes, supporter retention trend, concentration curve, quote funnel, and half-life histogram
 - Full panel-by-panel breakdown: see `METRICS_REFERENCE.md`.
 
@@ -272,8 +274,8 @@ Backups include SHA-256 checksums in `manifest.json`; restore verifies checksums
 
 ## Release notes
 
-- Current stable tag: `v1.3.0`
-- Detailed notes: `docs/releases/v1.3.0.md`
+- Current stable tag: `v1.4.0`
+- Detailed notes: `docs/releases/v1.4.0.md`
 
 ## Current v1 limits
 

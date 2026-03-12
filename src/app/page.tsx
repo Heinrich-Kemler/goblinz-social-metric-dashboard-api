@@ -27,7 +27,8 @@ type MetricPanelKey =
   | "overview_visuals"
   | "top_posts"
   | "best_times"
-  | "time_matrix";
+  | "time_matrix"
+  | "content_type_windows";
 
 const METRIC_PANELS: { key: MetricPanelKey; label: string }[] = [
   { key: "snapshot", label: "Latest Snapshot" },
@@ -41,6 +42,7 @@ const METRIC_PANELS: { key: MetricPanelKey; label: string }[] = [
   { key: "top_posts", label: "Top Posts" },
   { key: "best_times", label: "Best Times" },
   { key: "time_matrix", label: "Day/Hour Matrix" },
+  { key: "content_type_windows", label: "Content-Type Best Windows" },
   { key: "x_guardrails", label: "Refresh Guardrails" },
   { key: "x_mentions", label: "Mentions Intelligence" },
   { key: "x_supporters", label: "Repeat Supporters" },
@@ -1184,6 +1186,83 @@ export default async function HomePage({
       </section>
       )}
 
+      {visiblePanels.has("content_type_windows") && (
+      <section className="mt-10 card p-6">
+        <h3 className="section-title text-lg">Best Day + Hour by Content Type</h3>
+        <p className="muted text-sm">
+          Best performing slot per content format. X uses inferred types from tweet text; LinkedIn uses exported content type labels.
+        </p>
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <div>
+            <p className="text-sm font-semibold text-ink">X</p>
+            {data.xBestByContentType.length === 0 ? (
+              <p className="muted mt-2 text-xs">
+                No X content-type timing rows yet. Add X post analytics with timestamps or enable X API.
+              </p>
+            ) : (
+              <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-200 bg-white/70 p-3">
+                <table className="w-full min-w-[420px] text-left text-xs">
+                  <thead className="uppercase tracking-[0.12em] text-slate">
+                    <tr>
+                      <th className="pb-2 pr-3">Content Type</th>
+                      <th className="pb-2 pr-3">Best Window</th>
+                      <th className="pb-2 pr-3">ER</th>
+                      <th className="pb-2 pr-3">Posts</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {data.xBestByContentType.slice(0, 8).map((row) => (
+                      <tr key={`x-content-window-${row.contentType}`} className="text-slate">
+                        <td className="py-2 pr-3 font-semibold text-ink">{row.contentType}</td>
+                        <td className="py-2 pr-3">{row.label}</td>
+                        <td className="py-2 pr-3">
+                          {row.engagementRate !== null ? formatPercent(row.engagementRate) : "n/a"}
+                        </td>
+                        <td className="py-2 pr-3">{formatNumber(row.posts)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-ink">LinkedIn</p>
+            {data.linkedinBestByContentType.length === 0 ? (
+              <p className="muted mt-2 text-xs">
+                No LinkedIn content-type timing rows yet. Add LinkedIn post export with Created date + Content Type.
+              </p>
+            ) : (
+              <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-200 bg-white/70 p-3">
+                <table className="w-full min-w-[420px] text-left text-xs">
+                  <thead className="uppercase tracking-[0.12em] text-slate">
+                    <tr>
+                      <th className="pb-2 pr-3">Content Type</th>
+                      <th className="pb-2 pr-3">Best Window</th>
+                      <th className="pb-2 pr-3">ER</th>
+                      <th className="pb-2 pr-3">Posts</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {data.linkedinBestByContentType.slice(0, 8).map((row) => (
+                      <tr key={`li-content-window-${row.contentType}`} className="text-slate">
+                        <td className="py-2 pr-3 font-semibold text-ink">{row.contentType}</td>
+                        <td className="py-2 pr-3">{row.label}</td>
+                        <td className="py-2 pr-3">
+                          {row.engagementRate !== null ? formatPercent(row.engagementRate) : "n/a"}
+                        </td>
+                        <td className="py-2 pr-3">{formatNumber(row.posts)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+      )}
+
       {/* Day-of-week heatmap: visually shows the strongest days for views. */}
       <section className="mt-12 card p-6">
         <h3 className="section-title text-lg">Day-of-Week Performance</h3>
@@ -1271,6 +1350,65 @@ export default async function HomePage({
             hint={latestMentionsDay ? formatDateShort(latestMentionsDay.date) : "No mention rows"}
           />
         </div>
+        {(data.xMentions.sourceMix.length > 0 || data.xMentions.topicLeaderboard.length > 0) && (
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+              <h3 className="text-sm font-semibold text-ink">Mention Source Mix</h3>
+              <p className="muted mt-1 text-xs">
+                Where mention traffic is coming from in the current window.
+              </p>
+              {data.xMentions.sourceMix.length === 0 ? (
+                <p className="muted mt-3 text-xs">No source mix rows available.</p>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {data.xMentions.sourceMix.map((row) => {
+                    const width = Math.max(2, Math.round(row.share * 100));
+                    return (
+                      <div key={`mention-source-${row.label}`}>
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span className="font-semibold text-ink">{row.label}</span>
+                          <span className="text-slate">
+                            {formatNumber(row.mentions)} · {formatPercent(row.share)}
+                          </span>
+                        </div>
+                        <div className="mt-1 h-2 rounded-full bg-slate-100">
+                          <div
+                            className="h-2 rounded-full bg-[linear-gradient(90deg,var(--chart-1),var(--chart-2))]"
+                            style={{ width: `${width}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+              <h3 className="text-sm font-semibold text-ink">Topic / Hashtag Leaderboard</h3>
+              <p className="muted mt-1 text-xs">
+                Most repeated terms in mention text (hashtags + keywords).
+              </p>
+              {data.xMentions.topicLeaderboard.length === 0 ? (
+                <p className="muted mt-3 text-xs">No repeated topics in current window.</p>
+              ) : (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {data.xMentions.topicLeaderboard.slice(0, 14).map((topic) => (
+                    <span
+                      key={`topic-${topic.kind}-${topic.term}`}
+                      className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                        topic.kind === "hashtag"
+                          ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                          : "border-slate-200 bg-slate-50 text-slate-700"
+                      }`}
+                    >
+                      {topic.term} · {formatNumber(topic.mentions)}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {data.xMentions.note && (
           <p className="muted mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
             {data.xMentions.note}
