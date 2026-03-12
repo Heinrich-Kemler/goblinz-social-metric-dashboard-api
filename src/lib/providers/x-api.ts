@@ -1945,9 +1945,33 @@ function buildFollowerInsight(
 }
 
 function withGuardrail(value: XApiSnapshot, guardrail: XRefreshGuardrail): XApiSnapshot {
+  const normalized = normalizeSnapshotShape(value);
+  return {
+    ...normalized,
+    guardrail
+  };
+}
+
+function normalizeSnapshotShape(value: XApiSnapshot): XApiSnapshot {
+  const mentions = value.mentions ?? emptyMentionsInsight();
+
   return {
     ...value,
-    guardrail
+    daily: value.daily ?? [],
+    topPosts: value.topPosts ?? [],
+    bestTimes: value.bestTimes ?? [],
+    bestByContentType: value.bestByContentType ?? [],
+    timeMatrix: value.timeMatrix ?? [],
+    mentions: {
+      ...emptyMentionsInsight(),
+      ...mentions,
+      daily: mentions.daily ?? [],
+      velocity: mentions.velocity ?? [],
+      spikes: mentions.spikes ?? [],
+      sourceMix: mentions.sourceMix ?? [],
+      topicLeaderboard: mentions.topicLeaderboard ?? [],
+      topMentioners: mentions.topMentioners ?? []
+    }
   };
 }
 
@@ -2548,9 +2572,10 @@ function toOptionalNumber(value: unknown): number | null {
 }
 
 function cacheAndReturn(value: XApiSnapshot): XApiSnapshot {
+  const normalized = normalizeSnapshotShape(value);
   snapshotCache = {
     expiresAt: Date.now() + CACHE_SECONDS * 1000,
-    value
+    value: normalized
   };
-  return value;
+  return normalized;
 }

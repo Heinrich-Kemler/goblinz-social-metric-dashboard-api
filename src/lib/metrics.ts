@@ -729,7 +729,11 @@ export async function getDashboardData(
   return {
     x: xData,
     linkedin: linkedinData,
-    xMentions: xApiSnapshot.mentions,
+    xMentions: {
+      ...xApiSnapshot.mentions,
+      sourceMix: xApiSnapshot.mentions.sourceMix ?? [],
+      topicLeaderboard: xApiSnapshot.mentions.topicLeaderboard ?? []
+    },
     xQuotes: xApiSnapshot.quotes,
     xAmplifiers: xApiSnapshot.amplifiers,
     xEngagementCohort: xApiSnapshot.engagementCohort,
