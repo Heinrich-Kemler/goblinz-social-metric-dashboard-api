@@ -13,6 +13,7 @@ type MetricPanelKey =
   | "x_guardrails"
   | "x_mentions"
   | "x_supporters"
+  | "x_supporter_profiles"
   | "x_cohort"
   | "x_concentration"
   | "x_quotes"
@@ -20,6 +21,7 @@ type MetricPanelKey =
   | "x_visuals"
   | "x_followers"
   | "x_brand"
+  | "x_content_patterns"
   | "per_post"
   | "quality_signals"
   | "efficiency_signals"
@@ -46,6 +48,8 @@ const METRIC_PANELS: { key: MetricPanelKey; label: string }[] = [
   { key: "x_guardrails", label: "Refresh Guardrails" },
   { key: "x_mentions", label: "Mentions Intelligence" },
   { key: "x_supporters", label: "Repeat Supporters" },
+  { key: "x_supporter_profiles", label: "Persistent Supporters" },
+  { key: "x_content_patterns", label: "Content Pattern Insights" },
   { key: "x_cohort", label: "Engagement Cohort" },
   { key: "x_concentration", label: "Engagement Concentration" },
   { key: "x_quotes", label: "Quote Analytics" },
@@ -89,6 +93,18 @@ export default async function HomePage({
     supporterFilter === "verified"
       ? data.xAmplifiers.leaderboard.filter((row) => row.verified)
       : data.xAmplifiers.leaderboard;
+  const persistentRows =
+    supporterFilter === "verified"
+      ? data.xSupporterIntelligence.profiles.filter((row) => row.verified)
+      : data.xSupporterIntelligence.profiles;
+  const qualityRows =
+    supporterFilter === "verified"
+      ? data.xSupporterIntelligence.topQuality.filter((row) => row.verified)
+      : data.xSupporterIntelligence.topQuality;
+  const reactivationRows =
+    supporterFilter === "verified"
+      ? data.xSupporterIntelligence.reactivations.filter((row) => row.verified)
+      : data.xSupporterIntelligence.reactivations;
   const cohortRows = data.xEngagementCohort.rows;
   const cohortPosts = cohortRows.reduce((sum, row) => sum + row.totalPosts, 0);
   const cohortCellRates = cohortRows
@@ -123,6 +139,62 @@ export default async function HomePage({
       String(row.likes),
       String(row.reposts),
       String(row.supportingPosts)
+    ])
+  ]);
+  const persistentSupporterCsvHref = buildCsvDownloadHref([
+    [
+      "handle",
+      "name",
+      "verified",
+      "quality_score",
+      "quality_tier",
+      "lifetime_interactions",
+      "lifetime_likes",
+      "lifetime_reposts",
+      "active_weeks",
+      "current_streak_weeks",
+      "current_window_interactions",
+      "first_seen_utc",
+      "last_seen_utc"
+    ],
+    ...persistentRows.map((row) => [
+      row.handle,
+      row.name,
+      row.verified ? "yes" : "no",
+      row.qualityScore.toFixed(1),
+      row.qualityTier,
+      String(row.lifetimeInteractions),
+      String(row.lifetimeLikes),
+      String(row.lifetimeReposts),
+      String(row.activeWeeks),
+      String(row.currentStreakWeeks),
+      String(row.currentWindowInteractions),
+      row.firstSeenAt ? row.firstSeenAt.toISOString() : "",
+      row.lastSeenAt ? row.lastSeenAt.toISOString() : ""
+    ])
+  ]);
+  const reactivationCsvHref = buildCsvDownloadHref([
+    [
+      "handle",
+      "name",
+      "verified",
+      "reactivated_week",
+      "previous_active_week",
+      "dormant_weeks",
+      "current_window_interactions",
+      "lifetime_interactions",
+      "quality_score"
+    ],
+    ...reactivationRows.map((row) => [
+      row.handle,
+      row.name,
+      row.verified ? "yes" : "no",
+      row.reactivatedWeekKey,
+      row.previousActiveWeekKey ?? "",
+      String(row.dormantWeeks),
+      String(row.currentWindowInteractions),
+      String(row.lifetimeInteractions),
+      row.qualityScore.toFixed(1)
     ])
   ]);
 
@@ -1263,6 +1335,76 @@ export default async function HomePage({
       </section>
       )}
 
+      {visiblePanels.has("x_content_patterns") && (
+      <section className="mt-10 card p-6">
+        <h3 className="section-title text-lg">Content Pattern Insights (X API)</h3>
+        <p className="muted text-sm">
+          Compares performance by content style using average + median quality metrics.
+        </p>
+        <div className="mt-6 grid gap-6 lg:grid-cols-3">
+          <MetricStatCard
+            label="Tracked Content Types"
+            value={formatCompact(data.xContentPatterns.rows.length)}
+          />
+          <MetricStatCard
+            label="Recommended Type"
+            value={data.xContentPatterns.recommendedType ?? "n/a"}
+          />
+          <MetricStatCard
+            label="Recommended Window"
+            value={data.xContentPatterns.recommendedWindowLabel ?? "n/a"}
+          />
+        </div>
+        {data.xContentPatterns.note && (
+          <p className="muted mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+            {data.xContentPatterns.note}
+          </p>
+        )}
+        {data.xContentPatterns.rows.length === 0 ? (
+          <p className="muted mt-6 text-sm">
+            No content pattern rows available in the current lookback window.
+          </p>
+        ) : (
+          <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-200 bg-white/70 p-3">
+            <table className="w-full min-w-[920px] text-left text-xs">
+              <thead className="uppercase tracking-[0.12em] text-slate">
+                <tr>
+                  <th className="pb-2 pr-3">Content Type</th>
+                  <th className="pb-2 pr-3">Posts</th>
+                  <th className="pb-2 pr-3">Avg Impressions</th>
+                  <th className="pb-2 pr-3">Median Impressions</th>
+                  <th className="pb-2 pr-3">Avg Engagements</th>
+                  <th className="pb-2 pr-3">Median Engagements</th>
+                  <th className="pb-2 pr-3">Avg ER</th>
+                  <th className="pb-2 pr-3">Median ER</th>
+                  <th className="pb-2 pr-3">Best Window</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {data.xContentPatterns.rows.map((row) => (
+                  <tr key={`x-content-pattern-${row.contentType}`} className="text-slate">
+                    <td className="py-2 pr-3 font-semibold text-ink">{row.contentType}</td>
+                    <td className="py-2 pr-3">{formatNumber(row.posts)}</td>
+                    <td className="py-2 pr-3">{formatNumber(Math.round(row.averageImpressions))}</td>
+                    <td className="py-2 pr-3">{formatNumber(Math.round(row.medianImpressions))}</td>
+                    <td className="py-2 pr-3">{formatNumber(Math.round(row.averageEngagements))}</td>
+                    <td className="py-2 pr-3">{formatNumber(Math.round(row.medianEngagements))}</td>
+                    <td className="py-2 pr-3">
+                      {row.averageEngagementRate !== null ? formatPercent(row.averageEngagementRate) : "n/a"}
+                    </td>
+                    <td className="py-2 pr-3">
+                      {row.medianEngagementRate !== null ? formatPercent(row.medianEngagementRate) : "n/a"}
+                    </td>
+                    <td className="py-2 pr-3">{row.bestWindowLabel ?? "n/a"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+      )}
+
       {/* Day-of-week heatmap: visually shows the strongest days for views. */}
       <section className="mt-12 card p-6">
         <h3 className="section-title text-lg">Day-of-Week Performance</h3>
@@ -1764,6 +1906,141 @@ export default async function HomePage({
             </table>
           </div>
         )}
+      </section>
+      )}
+
+      {visiblePanels.has("x_supporter_profiles") && (
+      <section className="mt-10 card p-6">
+        <h2 className="section-title text-2xl">Persistent Supporters + Creator Quality (X API)</h2>
+        <p className="muted mt-2 text-sm">
+          Long-term supporter memory across refreshes with quality scoring and reactivation tracking.
+        </p>
+        <div className="mt-6 grid gap-6 lg:grid-cols-4">
+          <MetricStatCard
+            label="Tracked Profiles"
+            value={formatCompact(data.xSupporterIntelligence.profiles.length)}
+          />
+          <MetricStatCard
+            label="Top Quality (Elite)"
+            value={formatCompact(
+              data.xSupporterIntelligence.topQuality.filter((row) => row.qualityTier === "elite").length
+            )}
+          />
+          <MetricStatCard
+            label="Reactivated Supporters"
+            value={formatCompact(data.xSupporterIntelligence.reactivations.length)}
+            hint="Dormant >=4 weeks, then active again"
+          />
+          <MetricStatCard
+            label="Current Window Active"
+            value={formatCompact(
+              data.xSupporterIntelligence.profiles.filter((row) => row.currentWindowInteractions > 0).length
+            )}
+          />
+        </div>
+        {data.xSupporterIntelligence.note && (
+          <p className="muted mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+            {data.xSupporterIntelligence.note}
+          </p>
+        )}
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-ink">Creator Quality Leaderboard</h3>
+              <a
+                href={persistentSupporterCsvHref}
+                download={`x_persistent_supporters_${supporterFilter}.csv`}
+                className="ml-auto rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Download CSV
+              </a>
+            </div>
+            {qualityRows.length === 0 ? (
+              <p className="muted mt-3 text-xs">No profile rows available yet.</p>
+            ) : (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full min-w-[580px] text-left text-xs">
+                  <thead className="uppercase tracking-[0.12em] text-slate">
+                    <tr>
+                      <th className="pb-2 pr-3">Account</th>
+                      <th className="pb-2 pr-3">Tier</th>
+                      <th className="pb-2 pr-3">Score</th>
+                      <th className="pb-2 pr-3">Lifetime Interactions</th>
+                      <th className="pb-2 pr-3">Active Weeks</th>
+                      <th className="pb-2 pr-3">Streak</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {qualityRows.slice(0, 20).map((row) => (
+                      <tr key={`quality-${row.userId}`} className="text-slate">
+                        <td className="py-2 pr-3">
+                          <span className="font-semibold text-ink">{row.handle}</span>
+                          <p className="muted mt-1 text-[11px]">{row.name}</p>
+                        </td>
+                        <td className="py-2 pr-3">
+                          <span className={`rounded px-2 py-1 text-[11px] font-semibold ${qualityTierClass(row.qualityTier)}`}>
+                            {row.qualityTier}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-3">{row.qualityScore.toFixed(1)}</td>
+                        <td className="py-2 pr-3">{formatNumber(row.lifetimeInteractions)}</td>
+                        <td className="py-2 pr-3">{formatNumber(row.activeWeeks)}</td>
+                        <td className="py-2 pr-3">{formatNumber(row.currentStreakWeeks)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-ink">Reactivation List</h3>
+              <a
+                href={reactivationCsvHref}
+                download={`x_reactivations_${supporterFilter}.csv`}
+                className="ml-auto rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Download CSV
+              </a>
+            </div>
+            {reactivationRows.length === 0 ? (
+              <p className="muted mt-3 text-xs">
+                No reactivation events detected yet (need {"\u2265"}4 dormant weeks before return).
+              </p>
+            ) : (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full min-w-[560px] text-left text-xs">
+                  <thead className="uppercase tracking-[0.12em] text-slate">
+                    <tr>
+                      <th className="pb-2 pr-3">Account</th>
+                      <th className="pb-2 pr-3">Dormant Weeks</th>
+                      <th className="pb-2 pr-3">Now Active Week</th>
+                      <th className="pb-2 pr-3">Current Window</th>
+                      <th className="pb-2 pr-3">Quality Score</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {reactivationRows.slice(0, 20).map((row) => (
+                      <tr key={`reactivation-${row.userId}`} className="text-slate">
+                        <td className="py-2 pr-3">
+                          <span className="font-semibold text-ink">{row.handle}</span>
+                          <p className="muted mt-1 text-[11px]">{row.name}</p>
+                        </td>
+                        <td className="py-2 pr-3">{formatNumber(row.dormantWeeks)}</td>
+                        <td className="py-2 pr-3">{row.reactivatedWeekKey}</td>
+                        <td className="py-2 pr-3">
+                          {formatNumber(row.currentWindowInteractions)}
+                        </td>
+                        <td className="py-2 pr-3">{row.qualityScore.toFixed(1)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
       </section>
       )}
 
@@ -2936,6 +3213,13 @@ function formatRiskLabel(
 ): string {
   if (risk === "n/a") return "n/a";
   return risk.charAt(0).toUpperCase() + risk.slice(1);
+}
+
+function qualityTierClass(tier: "elite" | "strong" | "emerging" | "new"): string {
+  if (tier === "elite") return "bg-violet-100 text-violet-800";
+  if (tier === "strong") return "bg-blue-100 text-blue-800";
+  if (tier === "emerging") return "bg-emerald-100 text-emerald-800";
+  return "bg-slate-100 text-slate-700";
 }
 
 function formatHours(hours: number | null): string {

@@ -67,6 +67,8 @@ export type DashboardData = {
   xMentions: XMentionsInsight;
   xQuotes: XQuotesInsight;
   xAmplifiers: XAmplifiersInsight;
+  xSupporterIntelligence: XSupporterIntelligenceInsight;
+  xContentPatterns: XContentPatternInsight;
   xEngagementCohort: XEngagementCohortInsight;
   xPostHalfLife: XPostHalfLifeInsight;
   xFollowers: XFollowerInsight;
@@ -325,6 +327,65 @@ export type XAmplifiersInsight = {
   retention: XSupporterRetentionPoint[];
   cohortRetention: XSupporterCohortInsight;
   leaderboard: XAmplifierAccount[];
+};
+
+export type XPersistentSupporterRow = {
+  userId: string;
+  handle: string;
+  name: string;
+  verified: boolean;
+  firstSeenAt: Date | null;
+  lastSeenAt: Date | null;
+  activeWeeks: number;
+  currentStreakWeeks: number;
+  lifetimeInteractions: number;
+  lifetimeLikes: number;
+  lifetimeReposts: number;
+  lifetimeSupportingPosts: number;
+  currentWindowInteractions: number;
+  qualityScore: number;
+  qualityTier: "elite" | "strong" | "emerging" | "new";
+};
+
+export type XReactivationRow = {
+  userId: string;
+  handle: string;
+  name: string;
+  verified: boolean;
+  reactivatedWeekKey: string;
+  previousActiveWeekKey: string | null;
+  dormantWeeks: number;
+  currentWindowInteractions: number;
+  lifetimeInteractions: number;
+  qualityScore: number;
+};
+
+export type XSupporterIntelligenceInsight = {
+  available: boolean;
+  note: string | null;
+  profiles: XPersistentSupporterRow[];
+  topQuality: XPersistentSupporterRow[];
+  reactivations: XReactivationRow[];
+};
+
+export type XContentPatternRow = {
+  contentType: string;
+  posts: number;
+  averageImpressions: number;
+  medianImpressions: number;
+  averageEngagements: number;
+  medianEngagements: number;
+  averageEngagementRate: number | null;
+  medianEngagementRate: number | null;
+  bestWindowLabel: string | null;
+};
+
+export type XContentPatternInsight = {
+  available: boolean;
+  note: string | null;
+  rows: XContentPatternRow[];
+  recommendedType: string | null;
+  recommendedWindowLabel: string | null;
 };
 
 export type XSupporterCohortCell = {
@@ -736,6 +797,8 @@ export async function getDashboardData(
     },
     xQuotes: xApiSnapshot.quotes,
     xAmplifiers: xApiSnapshot.amplifiers,
+    xSupporterIntelligence: xApiSnapshot.supporterIntelligence,
+    xContentPatterns: xApiSnapshot.contentPatterns,
     xEngagementCohort: xApiSnapshot.engagementCohort,
     xPostHalfLife: xApiSnapshot.postHalfLife,
     xFollowers: xApiSnapshot.followers,
@@ -806,6 +869,13 @@ async function loadXApiSnapshotForMode(
       bestByContentType: [],
       timeMatrix: [],
       timeOfDayAvailable: false,
+      contentPatterns: {
+        available: false,
+        note: "X API disabled in CSV mode.",
+        rows: [],
+        recommendedType: null,
+        recommendedWindowLabel: null
+      },
       mentions: {
         available: false,
         note: "X API disabled in CSV mode.",
@@ -866,6 +936,13 @@ async function loadXApiSnapshotForMode(
           rows: []
         },
         leaderboard: []
+      },
+      supporterIntelligence: {
+        available: false,
+        note: "X API disabled in CSV mode.",
+        profiles: [],
+        topQuality: [],
+        reactivations: []
       },
       engagementCohort: {
         available: false,

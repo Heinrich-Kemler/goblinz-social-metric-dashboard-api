@@ -22,6 +22,8 @@ import type {
   XQuoteDaily,
   XQuotedPost,
   XQuotesInsight,
+  XContentPatternInsight,
+  XSupporterIntelligenceInsight,
   XSupporterCohortInsight,
   XSupporterRetentionPoint,
   XRefreshGuardrail
@@ -96,11 +98,25 @@ type PersistedXState = {
     signature: string;
     posts: Array<{ tweetId: string; createdAt: string; engagements: number }>;
   }>;
+  supporterProfiles: Record<string, PersistedSupporterProfile>;
   refreshUsage: {
     dayKey: string;
     used: number;
     nextAllowedAtMs: number;
   };
+};
+
+type PersistedSupporterProfile = {
+  userId: string;
+  handle: string;
+  name: string;
+  verified: boolean;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  weeklyStats: Record<
+    string,
+    { likes: number; reposts: number; interactions: number; supportingPosts: number }
+  >;
 };
 
 export type XApiSnapshot = {
@@ -110,9 +126,11 @@ export type XApiSnapshot = {
   bestByContentType: ContentTypeBestWindow[];
   timeMatrix: BestTimeSlot[];
   timeOfDayAvailable: boolean;
+  contentPatterns: XContentPatternInsight;
   mentions: XMentionsInsight;
   quotes: XQuotesInsight;
   amplifiers: XAmplifiersInsight;
+  supporterIntelligence: XSupporterIntelligenceInsight;
   engagementCohort: XEngagementCohortInsight;
   postHalfLife: XPostHalfLifeInsight;
   followers: XFollowerInsight;
@@ -326,7 +344,7 @@ export async function loadXApiSnapshot(options: LoadOptions = {}): Promise<XApiS
 
     const [quotesInsight, amplifiersInsight] = await Promise.all([
       loadQuoteInsight(quoteSources, bearer),
-      loadAmplifierInsight(amplifierSources, bearer)
+      loadAmplifierInsight(amplifierSources, bearer, state)
     ]);
 
     const followerCount = toOptionalNumber(user.data?.public_metrics?.followers_count);
@@ -339,7 +357,12 @@ export async function loadXApiSnapshot(options: LoadOptions = {}): Promise<XApiS
     const timeMatrix = buildTimeMatrix(tweets);
     const bestTimes = rankTopSlots(timeMatrix);
     const bestByContentType = buildBestByContentTypeFromTweets(tweets);
+    const contentPatterns = buildContentPatternInsight(tweets);
     const engagementCohort = buildEngagementCohort(tweets, new Date());
+    const supporterIntelligence = buildSupporterIntelligenceInsight(
+      state,
+      amplifiersInsight.leaderboard
+    );
     const topPosts = tweets
       .map(toPostSummary)
       .sort((a, b) => b.impressions - a.impressions)
@@ -352,9 +375,11 @@ export async function loadXApiSnapshot(options: LoadOptions = {}): Promise<XApiS
       bestByContentType,
       timeMatrix,
       timeOfDayAvailable: true,
+      contentPatterns,
       mentions: mentionsOutcome,
       quotes: quotesInsight,
       amplifiers: amplifiersInsight,
+      supporterIntelligence,
       engagementCohort,
       postHalfLife,
       followers: followerInsight,
@@ -775,7 +800,8 @@ async function loadQuoteInsight(
 
 async function loadAmplifierInsight(
   sourceTweets: XApiTweet[],
-  bearer: string
+  bearer: string,
+  state: PersistedXState
 ): Promise<XAmplifiersInsight> {
   if (sourceTweets.length === 0) {
     return {
@@ -796,6 +822,10 @@ async function loadAmplifierInsight(
   >();
   const byWeekSupporters = new Map<string, Set<string>>();
   const weekStartByKey = new Map<string, Date>();
+  const userWeeklyStats = new Map<
+    string,
+    Map<string, { likes: number; reposts: number; interactions: number; supportingPosts: Set<string> }>
+  >();
 
   try {
     for (const sourceTweet of sourceTweets) {
@@ -836,6 +866,18 @@ async function loadAmplifierInsight(
         }
         entry.supportingPosts.add(tweetId);
         byAccount.set(user.id, entry);
+
+        if (weekKey) {
+          const weekMap = userWeeklyStats.get(user.id) ?? new Map();
+          const weekStat =
+            weekMap.get(weekKey) ??
+            { likes: 0, reposts: 0, interactions: 0, supportingPosts: new Set<string>() };
+          weekStat.likes += 1;
+          weekStat.interactions += 1;
+          weekStat.supportingPosts.add(tweetId);
+          weekMap.set(weekKey, weekStat);
+          userWeeklyStats.set(user.id, weekMap);
+        }
       }
 
       for (const user of retweetedUsers) {
@@ -853,24 +895,24 @@ async function loadAmplifierInsight(
         }
         entry.supportingPosts.add(tweetId);
         byAccount.set(user.id, entry);
+
+        if (weekKey) {
+          const weekMap = userWeeklyStats.get(user.id) ?? new Map();
+          const weekStat =
+            weekMap.get(weekKey) ??
+            { likes: 0, reposts: 0, interactions: 0, supportingPosts: new Set<string>() };
+          weekStat.reposts += 1;
+          weekStat.interactions += 1;
+          weekStat.supportingPosts.add(tweetId);
+          weekMap.set(weekKey, weekStat);
+          userWeeklyStats.set(user.id, weekMap);
+        }
       }
     }
 
-    const accountStats: XAmplifierAccount[] = Array.from(byAccount.entries()).map(
-      ([userId, entry]) => {
-        const interactions = entry.likes + entry.reposts;
-        return {
-          userId,
-          handle: entry.profile.username ? `@${entry.profile.username}` : "@unknown",
-          name: entry.profile.name ?? "Unknown",
-          verified: Boolean(entry.profile.verified),
-          likes: entry.likes,
-          reposts: entry.reposts,
-          interactions,
-          supportingPosts: entry.supportingPosts.size
-        };
-      }
-    );
+    await mergeSupporterProfiles(state, accountStatsFromMap(byAccount), userWeeklyStats);
+
+    const accountStats: XAmplifierAccount[] = accountStatsFromMap(byAccount);
 
     const leaderboard: XAmplifierAccount[] = [...accountStats]
       .sort((a, b) => {
@@ -934,6 +976,330 @@ async function loadAmplifierInsight(
           : "Amplifier endpoints unavailable."
     };
   }
+}
+
+function accountStatsFromMap(
+  byAccount: Map<
+    string,
+    {
+      profile: XApiUser;
+      likes: number;
+      reposts: number;
+      supportingPosts: Set<string>;
+    }
+  >
+): XAmplifierAccount[] {
+  return Array.from(byAccount.entries()).map(([userId, entry]) => {
+    const interactions = entry.likes + entry.reposts;
+    return {
+      userId,
+      handle: entry.profile.username ? `@${entry.profile.username}` : "@unknown",
+      name: entry.profile.name ?? "Unknown",
+      verified: Boolean(entry.profile.verified),
+      likes: entry.likes,
+      reposts: entry.reposts,
+      interactions,
+      supportingPosts: entry.supportingPosts.size
+    };
+  });
+}
+
+async function mergeSupporterProfiles(
+  state: PersistedXState,
+  accounts: XAmplifierAccount[],
+  weeklyStatsByUser: Map<
+    string,
+    Map<
+      string,
+      { likes: number; reposts: number; interactions: number; supportingPosts: Set<string> }
+    >
+  >
+): Promise<void> {
+  let dirty = false;
+  const nowIso = new Date().toISOString();
+
+  for (const account of accounts) {
+    const existing = state.supporterProfiles[account.userId];
+    const profile: PersistedSupporterProfile = existing ?? {
+      userId: account.userId,
+      handle: account.handle,
+      name: account.name,
+      verified: account.verified,
+      firstSeenAt: nowIso,
+      lastSeenAt: nowIso,
+      weeklyStats: {}
+    };
+
+    if (profile.handle !== account.handle) {
+      profile.handle = account.handle;
+      dirty = true;
+    }
+    if (profile.name !== account.name) {
+      profile.name = account.name;
+      dirty = true;
+    }
+    if (profile.verified !== account.verified) {
+      profile.verified = account.verified;
+      dirty = true;
+    }
+    if (profile.lastSeenAt !== nowIso) {
+      profile.lastSeenAt = nowIso;
+      dirty = true;
+    }
+
+    const weeklyMap = weeklyStatsByUser.get(account.userId) ?? new Map();
+    for (const [weekKey, metrics] of weeklyMap.entries()) {
+      const incoming = {
+        likes: metrics.likes,
+        reposts: metrics.reposts,
+        interactions: metrics.interactions,
+        supportingPosts: metrics.supportingPosts.size
+      };
+      const current = profile.weeklyStats[weekKey] ?? {
+        likes: 0,
+        reposts: 0,
+        interactions: 0,
+        supportingPosts: 0
+      };
+      const merged = {
+        likes: Math.max(current.likes, incoming.likes),
+        reposts: Math.max(current.reposts, incoming.reposts),
+        interactions: Math.max(current.interactions, incoming.interactions),
+        supportingPosts: Math.max(current.supportingPosts, incoming.supportingPosts)
+      };
+      if (
+        merged.likes !== current.likes ||
+        merged.reposts !== current.reposts ||
+        merged.interactions !== current.interactions ||
+        merged.supportingPosts !== current.supportingPosts
+      ) {
+        profile.weeklyStats[weekKey] = merged;
+        dirty = true;
+      }
+    }
+
+    const weekKeys = Object.keys(profile.weeklyStats).sort();
+    if (weekKeys.length > 104) {
+      const remove = weekKeys.slice(0, weekKeys.length - 104);
+      remove.forEach((key) => {
+        delete profile.weeklyStats[key];
+      });
+      dirty = true;
+    }
+    const earliest = Object.keys(profile.weeklyStats).sort()[0];
+    if (earliest) {
+      const firstSeen = `${earliest}T00:00:00.000Z`;
+      if (profile.firstSeenAt !== firstSeen) {
+        profile.firstSeenAt = firstSeen;
+        dirty = true;
+      }
+    }
+
+    state.supporterProfiles[account.userId] = profile;
+  }
+
+  if (dirty) {
+    await savePersistedState(state);
+  }
+}
+
+function buildSupporterIntelligenceInsight(
+  state: PersistedXState,
+  leaderboard: XAmplifierAccount[]
+): XSupporterIntelligenceInsight {
+  const profiles = Object.values(state.supporterProfiles);
+  if (profiles.length === 0) {
+    return emptySupporterIntelligenceInsight();
+  }
+
+  const currentWindow = new Map(leaderboard.map((row) => [row.userId, row.interactions]));
+  const rows = profiles
+    .map((profile) => {
+      const weekKeys = Object.keys(profile.weeklyStats).sort();
+      const totals = weekKeys.reduce(
+        (acc, weekKey) => {
+          const row = profile.weeklyStats[weekKey];
+          acc.likes += row.likes;
+          acc.reposts += row.reposts;
+          acc.interactions += row.interactions;
+          acc.supportingPosts += row.supportingPosts;
+          return acc;
+        },
+        { likes: 0, reposts: 0, interactions: 0, supportingPosts: 0 }
+      );
+      const lastSeenAt = parseIsoDate(profile.lastSeenAt);
+      const firstSeenAt = parseIsoDate(profile.firstSeenAt);
+      const currentStreakWeeks = computeWeeklyStreak(weekKeys);
+      const qualityScore = computeCreatorQualityScore({
+        lifetimeLikes: totals.likes,
+        lifetimeReposts: totals.reposts,
+        activeWeeks: weekKeys.length,
+        currentStreakWeeks,
+        lastSeenAt,
+        verified: profile.verified
+      });
+
+      return {
+        userId: profile.userId,
+        handle: profile.handle,
+        name: profile.name,
+        verified: profile.verified,
+        firstSeenAt,
+        lastSeenAt,
+        activeWeeks: weekKeys.length,
+        currentStreakWeeks,
+        lifetimeInteractions: totals.interactions,
+        lifetimeLikes: totals.likes,
+        lifetimeReposts: totals.reposts,
+        lifetimeSupportingPosts: totals.supportingPosts,
+        currentWindowInteractions: currentWindow.get(profile.userId) ?? 0,
+        qualityScore,
+        qualityTier: toCreatorQualityTier(qualityScore)
+      };
+    })
+    .sort((a, b) => {
+      if (b.qualityScore !== a.qualityScore) return b.qualityScore - a.qualityScore;
+      return b.lifetimeInteractions - a.lifetimeInteractions;
+    });
+
+  const reactivations = rows
+    .map((row) => {
+      if (row.currentWindowInteractions <= 0) return null;
+      const weekKeys = Object.keys(state.supporterProfiles[row.userId]?.weeklyStats ?? {}).sort();
+      if (weekKeys.length < 2) return null;
+      const latestWeek = weekKeys[weekKeys.length - 1];
+      const previousWeek = weekKeys[weekKeys.length - 2] ?? null;
+      if (!previousWeek) return null;
+      const dormantWeeks = weekDiff(previousWeek, latestWeek) - 1;
+      if (dormantWeeks < 4) return null;
+      return {
+        userId: row.userId,
+        handle: row.handle,
+        name: row.name,
+        verified: row.verified,
+        reactivatedWeekKey: latestWeek,
+        previousActiveWeekKey: previousWeek,
+        dormantWeeks,
+        currentWindowInteractions: row.currentWindowInteractions,
+        lifetimeInteractions: row.lifetimeInteractions,
+        qualityScore: row.qualityScore
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    .sort((a, b) => {
+      if (b.dormantWeeks !== a.dormantWeeks) return b.dormantWeeks - a.dormantWeeks;
+      return b.qualityScore - a.qualityScore;
+    })
+    .slice(0, 25);
+
+  return {
+    available: true,
+    note: null,
+    profiles: rows.slice(0, 120),
+    topQuality: rows.slice(0, 25),
+    reactivations
+  };
+}
+
+function buildContentPatternInsight(tweets: XApiTweet[]): XContentPatternInsight {
+  if (tweets.length === 0) {
+    return emptyContentPatternInsight();
+  }
+
+  const map = new Map<
+    string,
+    {
+      impressions: number[];
+      engagements: number[];
+      rates: number[];
+      slots: Map<string, { sumRate: number; rateCount: number; posts: number }>;
+    }
+  >();
+
+  for (const tweet of tweets) {
+    const createdAt = parseIsoDate(tweet.created_at);
+    if (!createdAt) continue;
+    const contentType = inferXTweetType(tweet.text ?? "");
+    const impressions =
+      tweet.non_public_metrics?.impression_count ??
+      tweet.organic_metrics?.impression_count ??
+      tweet.public_metrics?.impression_count ??
+      0;
+    const engagements =
+      (tweet.public_metrics?.like_count ?? 0) +
+      (tweet.public_metrics?.reply_count ?? 0) +
+      (tweet.public_metrics?.retweet_count ?? 0) +
+      (tweet.public_metrics?.quote_count ?? 0);
+    const rate = impressions > 0 ? engagements / impressions : null;
+
+    const row =
+      map.get(contentType) ??
+      {
+        impressions: [],
+        engagements: [],
+        rates: [],
+        slots: new Map<string, { sumRate: number; rateCount: number; posts: number }>()
+      };
+    row.impressions.push(impressions);
+    row.engagements.push(engagements);
+    if (rate !== null) {
+      row.rates.push(rate);
+    }
+
+    const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][createdAt.getUTCDay()];
+    const hour = createdAt.getUTCHours();
+    const slotKey = `${day} ${String(hour).padStart(2, "0")}:00`;
+    const slot = row.slots.get(slotKey) ?? { sumRate: 0, rateCount: 0, posts: 0 };
+    slot.posts += 1;
+    if (rate !== null) {
+      slot.sumRate += rate;
+      slot.rateCount += 1;
+    }
+    row.slots.set(slotKey, slot);
+    map.set(contentType, row);
+  }
+
+  const rows = Array.from(map.entries())
+    .map(([contentType, row]) => {
+      const bestSlot = Array.from(row.slots.entries())
+        .map(([label, slot]) => ({
+          label,
+          avgRate: slot.rateCount > 0 ? slot.sumRate / slot.rateCount : null,
+          posts: slot.posts
+        }))
+        .sort((a, b) => {
+          const aRate = a.avgRate ?? -1;
+          const bRate = b.avgRate ?? -1;
+          if (bRate !== aRate) return bRate - aRate;
+          return b.posts - a.posts;
+        })[0];
+      return {
+        contentType,
+        posts: row.impressions.length,
+        averageImpressions: averageNumber(row.impressions),
+        medianImpressions: median(row.impressions) ?? 0,
+        averageEngagements: averageNumber(row.engagements),
+        medianEngagements: median(row.engagements) ?? 0,
+        averageEngagementRate: row.rates.length > 0 ? averageNumber(row.rates) : null,
+        medianEngagementRate: median(row.rates),
+        bestWindowLabel: bestSlot?.label ?? null
+      };
+    })
+    .sort((a, b) => {
+      const aRate = a.medianEngagementRate ?? -1;
+      const bRate = b.medianEngagementRate ?? -1;
+      if (bRate !== aRate) return bRate - aRate;
+      return b.posts - a.posts;
+    });
+
+  const recommended = rows[0] ?? null;
+  return {
+    available: rows.length > 0,
+    note: rows.length > 0 ? null : "No content pattern rows in current lookback window.",
+    rows,
+    recommendedType: recommended?.contentType ?? null,
+    recommendedWindowLabel: recommended?.bestWindowLabel ?? null
+  };
 }
 
 async function loadBrandListeningInsight(bearer: string): Promise<XBrandListeningInsight> {
@@ -1583,10 +1949,12 @@ function normalizePersistedState(input: Partial<PersistedXState>): PersistedXSta
           } => entry !== null
         )
     : [];
+  const supporterProfiles = normalizeSupporterProfiles(input.supporterProfiles);
 
   return {
     followerSnapshots: snapshots.slice(-FOLLOWER_HISTORY_LIMIT),
     postEngagementSnapshots: postSnapshots.slice(-POST_SNAPSHOT_HISTORY_LIMIT),
+    supporterProfiles,
     refreshUsage: {
       dayKey: refreshUsage.dayKey || toUtcDayKey(new Date()),
       used: normalizeNumber(refreshUsage.used),
@@ -1599,12 +1967,81 @@ function createDefaultPersistedState(): PersistedXState {
   return {
     followerSnapshots: [],
     postEngagementSnapshots: [],
+    supporterProfiles: {},
     refreshUsage: {
       dayKey: toUtcDayKey(new Date()),
       used: 0,
       nextAllowedAtMs: 0
     }
   };
+}
+
+function normalizeSupporterProfiles(
+  input: unknown
+): Record<string, PersistedSupporterProfile> {
+  if (!input || typeof input !== "object") return {};
+  const rawEntries = Object.entries(input as Record<string, unknown>);
+  const normalizedEntries = rawEntries
+    .map(([userId, value]) => {
+      if (!value || typeof value !== "object") return null;
+      const profile = value as Partial<PersistedSupporterProfile>;
+      const weeklyRaw =
+        profile.weeklyStats && typeof profile.weeklyStats === "object"
+          ? profile.weeklyStats
+          : {};
+      const weeklyStats = Object.fromEntries(
+        Object.entries(weeklyRaw)
+          .filter(([weekKey, metrics]) => {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(weekKey)) return false;
+            return Boolean(metrics && typeof metrics === "object");
+          })
+          .map(([weekKey, metrics]) => {
+            const row = metrics as {
+              likes?: unknown;
+              reposts?: unknown;
+              interactions?: unknown;
+              supportingPosts?: unknown;
+            };
+            return [
+              weekKey,
+              {
+                likes: normalizeNumber(row.likes),
+                reposts: normalizeNumber(row.reposts),
+                interactions: normalizeNumber(row.interactions),
+                supportingPosts: normalizeNumber(row.supportingPosts)
+              }
+            ] as const;
+          })
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .slice(-104)
+      ) as PersistedSupporterProfile["weeklyStats"];
+      const nowIso = new Date().toISOString();
+      const normalized: PersistedSupporterProfile = {
+        userId,
+        handle:
+          typeof profile.handle === "string" && profile.handle.trim().length > 0
+            ? profile.handle
+            : "@unknown",
+        name:
+          typeof profile.name === "string" && profile.name.trim().length > 0
+            ? profile.name
+            : "Unknown",
+        verified: Boolean(profile.verified),
+        firstSeenAt:
+          typeof profile.firstSeenAt === "string" ? profile.firstSeenAt : nowIso,
+        lastSeenAt:
+          typeof profile.lastSeenAt === "string" ? profile.lastSeenAt : nowIso,
+        weeklyStats
+      };
+      return [userId, normalized] as const;
+    })
+    .filter(
+      (
+        entry
+      ): entry is readonly [string, PersistedSupporterProfile] => entry !== null
+    );
+
+  return Object.fromEntries(normalizedEntries);
 }
 
 function rotateRefreshUsageDay(state: PersistedXState): void {
@@ -1954,6 +2391,9 @@ function withGuardrail(value: XApiSnapshot, guardrail: XRefreshGuardrail): XApiS
 
 function normalizeSnapshotShape(value: XApiSnapshot): XApiSnapshot {
   const mentions = value.mentions ?? emptyMentionsInsight();
+  const supporterIntelligence =
+    value.supporterIntelligence ?? emptySupporterIntelligenceInsight();
+  const contentPatterns = value.contentPatterns ?? emptyContentPatternInsight();
 
   return {
     ...value,
@@ -1962,6 +2402,18 @@ function normalizeSnapshotShape(value: XApiSnapshot): XApiSnapshot {
     bestTimes: value.bestTimes ?? [],
     bestByContentType: value.bestByContentType ?? [],
     timeMatrix: value.timeMatrix ?? [],
+    contentPatterns: {
+      ...emptyContentPatternInsight(),
+      ...contentPatterns,
+      rows: contentPatterns.rows ?? []
+    },
+    supporterIntelligence: {
+      ...emptySupporterIntelligenceInsight(),
+      ...supporterIntelligence,
+      profiles: supporterIntelligence.profiles ?? [],
+      topQuality: supporterIntelligence.topQuality ?? [],
+      reactivations: supporterIntelligence.reactivations ?? []
+    },
     mentions: {
       ...emptyMentionsInsight(),
       ...mentions,
@@ -1983,9 +2435,11 @@ function emptySnapshot(source: "disabled" | "error" | "paused"): XApiSnapshot {
     bestByContentType: [],
     timeMatrix: [],
     timeOfDayAvailable: false,
+    contentPatterns: emptyContentPatternInsight(),
     mentions: emptyMentionsInsight(),
     quotes: emptyQuotesInsight(),
     amplifiers: emptyAmplifiersInsight(),
+    supporterIntelligence: emptySupporterIntelligenceInsight(),
     engagementCohort: emptyEngagementCohortInsight(),
     postHalfLife: emptyPostHalfLifeInsight(),
     followers: emptyFollowerInsight(),
@@ -2072,6 +2526,26 @@ function emptyAmplifiersInsight(): XAmplifiersInsight {
       rows: []
     },
     leaderboard: []
+  };
+}
+
+function emptySupporterIntelligenceInsight(): XSupporterIntelligenceInsight {
+  return {
+    available: false,
+    note: null,
+    profiles: [],
+    topQuality: [],
+    reactivations: []
+  };
+}
+
+function emptyContentPatternInsight(): XContentPatternInsight {
+  return {
+    available: false,
+    note: null,
+    rows: [],
+    recommendedType: null,
+    recommendedWindowLabel: null
   };
 }
 
@@ -2518,6 +2992,71 @@ function percentile(values: number[], p: number): number | null {
   if (lower === upper) return sorted[lower];
   const weight = index - lower;
   return sorted[lower] + (sorted[upper] - sorted[lower]) * weight;
+}
+
+function averageNumber(values: number[]): number {
+  if (values.length === 0) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function computeCreatorQualityScore(args: {
+  lifetimeLikes: number;
+  lifetimeReposts: number;
+  activeWeeks: number;
+  currentStreakWeeks: number;
+  lastSeenAt: Date | null;
+  verified: boolean;
+}): number {
+  const weightedActions = args.lifetimeLikes + args.lifetimeReposts * 2;
+  const consistency = Math.min(1, args.activeWeeks / 12);
+  const streakBoost = 1 + Math.min(6, args.currentStreakWeeks) * 0.03;
+  const recencyBoost = getRecencyBoost(args.lastSeenAt);
+  const verifiedBoost = args.verified ? 1.08 : 1;
+  const base = Math.log1p(Math.max(0, weightedActions)) * 25;
+  const score = base * (0.6 + 0.4 * consistency) * streakBoost * recencyBoost * verifiedBoost;
+  return Math.round(score * 10) / 10;
+}
+
+function toCreatorQualityTier(
+  score: number
+): "elite" | "strong" | "emerging" | "new" {
+  if (score >= 120) return "elite";
+  if (score >= 85) return "strong";
+  if (score >= 50) return "emerging";
+  return "new";
+}
+
+function getRecencyBoost(lastSeenAt: Date | null): number {
+  if (!lastSeenAt) return 0.4;
+  const days = Math.max(0, (Date.now() - lastSeenAt.getTime()) / (1000 * 60 * 60 * 24));
+  if (days <= 7) return 1;
+  if (days <= 21) return 0.9;
+  if (days <= 45) return 0.75;
+  if (days <= 90) return 0.55;
+  return 0.35;
+}
+
+function weekDiff(earlierWeekKey: string, laterWeekKey: string): number {
+  const earlier = parseDayKey(earlierWeekKey);
+  const later = parseDayKey(laterWeekKey);
+  const ms = later.getTime() - earlier.getTime();
+  return Math.max(0, Math.round(ms / (1000 * 60 * 60 * 24 * 7)));
+}
+
+function computeWeeklyStreak(weekKeys: string[]): number {
+  if (weekKeys.length === 0) return 0;
+  const sorted = [...weekKeys].sort();
+  let streak = 1;
+  for (let index = sorted.length - 1; index > 0; index -= 1) {
+    const current = sorted[index];
+    const previous = sorted[index - 1];
+    if (weekDiff(previous, current) === 1) {
+      streak += 1;
+      continue;
+    }
+    break;
+  }
+  return streak;
 }
 
 function countIntersection(a: Set<string>, b: Set<string>): number {
